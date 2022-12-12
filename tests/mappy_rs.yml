@@ -1,0 +1,12 @@
+name: mappy_rs
+channels:
+  - bioconda
+  - conda-forge
+  - defaults
+dependencies:
+  - python==3.10
+  - ptpython
+  - ipython
+  - pip
+  - pip:
+    - rich
