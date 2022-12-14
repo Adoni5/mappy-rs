@@ -1,5 +1,5 @@
 [build-system]
-requires = ["maturin>=0.13,<0.14"]
+requires = ["maturin>=0.14"]
 build-backend = "maturin"
 
 [project]
@@ -21,5 +21,5 @@ authors = [
 maintainers = [
     { name = "Rory Munro",  email = "rory.munro@nottingham.ac.uk"},
 ]
-homepage = "https://github.com/alexomics/mm2_rs"
+homepage = "https://github.com/adoni5/mappy-rs"
 keywords = ["alignment", "bioinformatics", "python", "rust", "minimap2"]
