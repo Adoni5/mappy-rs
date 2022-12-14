@@ -18,7 +18,7 @@ jobs:
         command: build
         args: --release --sdist -o target/dist --find-interpreter 
         maturin-version: v0.14.5
-        container: pull ghcr.io/adoni5/manylinuxclang@sha256:59154dfc2312e43116837c9247dd7e7202a690517be304c2bb202d588d2e059b
+        container: ghcr.io/adoni5/manylinuxclang@sha256:59154dfc2312e43116837c9247dd7e7202a690517be304c2bb202d588d2e059b
     - name: Upload wheels
       uses: actions/upload-artifact@v2
       with:
