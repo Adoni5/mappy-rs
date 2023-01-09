@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::mem;
+use std::fmt::{Display, Formatter};
 use std::mem::MaybeUninit;
 use std::path::Path;
 use std::path::PathBuf;
@@ -42,7 +42,7 @@ static CDNA: &str = "cdna\0";
 enum WorkQueue<T> {
     Work(T),
     Done,
-    Starting,
+    Result(T)
 }
 /// Strand enum
 #[pyclass]
@@ -50,6 +50,20 @@ enum WorkQueue<T> {
 pub enum Strand {
     Forward,
     Reverse,
+}
+
+impl Display for Strand {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        let strand_string = match self {
+            Strand::Forward => {
+                String::from("+")
+            },
+            Strand::Reverse => {
+                String::from("-")
+            }
+        };
+        write!(f, "{}", strand_string)
+    }
 }
 
 /// Preset's for minimap2 config
@@ -99,26 +113,19 @@ pub enum AlignmentType {
     Inversion,
 }
 
+#[pyclass]
+#[derive(Debug, Clone)]
+pub enum Status {
+    Good,
+    Bad
+}
+
 /// Alignment struct when alignment flag is set
 #[pyclass]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Alignment {
     pub is_primary: bool,
     pub cigar: Option<String>,
-}
-
-#[pymethods]
-impl Alignment {
-    // For `__repr__` we want to return a string that Python code could use to recreate
-    // the `Alignment`.
-    fn __repr__(&self) -> String {
-        // We use the `format!` macro to create a string. Its first argument is a
-        // format string, followed by any number of parameters which replace the
-        // `{}`'s in the format string.
-        //
-        //                       👇 Tuple field access in Rust uses a dot
-        format!("{:#?}", self)
-    }
 }
 
 /// Mapping result
@@ -154,6 +161,30 @@ pub struct Mapping {
     pub alignment: Option<Alignment>,
 }
 
+impl Display for Mapping {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+        let cigar = match &self.alignment {
+            Some(al) => {
+                match &al.cigar {
+                    Some(c) => {
+                        c.clone()
+                    },
+                    None => {
+                        String::from("")
+                    }
+                }
+            }, 
+            None => {
+                String::from("")
+            }
+        };
+        write!(f, "{}  {}  {}  {}  {}  {}  {}  {}  {}  {}  {}", 
+        self.query_start, self.query_end, self.strand, self.target_name.as_ref().unwrap_or(&String::from("")),
+        self.target_len, self.target_start, self.target_end, self.match_len, self.block_len, self.mapq, cigar
+     )
+    }
+}
+
 #[pymethods]
 impl Mapping {
     // #[getter]
@@ -180,11 +211,13 @@ impl Mapping {
 
     // `__str__` is generally used to create an "informal" representation, so we
     // just forward to `i32`'s `ToString` trait implementation to print a bare number.
-    // fn __str__(&self) -> String {
-    //     "Get mapped scrub".to_string()
-    // }
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
     // todo return paf formatted results
 }
+
+
 
 // Thread local buffer (memory management) for minimap2
 thread_local! {
@@ -221,7 +254,7 @@ impl Default for ThreadLocalBuffer {
 struct AlignmentResult {
     mappings: std::vec::IntoIter<Mapping>,
     #[pyo3(get)]
-    metadata: (i32, i32, String),
+    metadata: MetaData,
 }
 
 #[pymethods]
@@ -261,7 +294,7 @@ pub struct Aligner {
     /// Index reader created by minimap2
     pub idx_reader: Option<mm_idx_reader_t>,
 
-    work_queue: Arc<ArrayQueue<WorkQueue<String>>>,
+    work_queue: Arc<ArrayQueue<WorkQueue<(MetaData, String)>>>,
 }
 unsafe impl Send for Aligner {}
 
@@ -275,7 +308,7 @@ impl Default for Aligner {
             map_threads: 1,
             idx: None,
             idx_reader: None,
-            work_queue: Arc::new(ArrayQueue::<WorkQueue<String>>::new(50000)),
+            work_queue: Arc::new(ArrayQueue::<WorkQueue<(MetaData, String)>>::new(50000)),
         }
     }
 }
@@ -292,19 +325,32 @@ impl Aligner {
     }
 }
 
+#[pyclass]
+#[derive(Clone, Debug)]
 struct MetaData {
+    #[pyo3(get)]
     read_id: String,
-    read_number: i32,
-    channel_number: i32,
+    #[pyo3(get)]
+    channel_number: u32,
 }
 
-impl From<(i32, i32, String)> for MetaData {
-    fn from(item: (i32, i32, String)) -> Self {
+impl From<(u32, String)> for MetaData {
+    fn from(item: (u32, String)) -> Self {
         MetaData {
-            read_id: item.2,
-            read_number: item.0,
-            channel_number: item.1,
+            read_id: item.1,
+            channel_number: item.0,
         }
+    }
+}
+
+#[pymethods]
+impl MetaData {
+    fn __repr__(&self) -> String {
+        format!("{:#?}", self)
+    }
+
+    fn to_tuple(&self) -> (u32, String) {
+        (self.channel_number, self.read_id.clone())
     }
 }
 
@@ -313,13 +359,21 @@ impl From<(i32, i32, String)> for MetaData {
 #[pymethods]
 impl Aligner {
     #[new]
-    fn py_new(n_threads: usize, index: PathBuf) -> PyResult<Self> {
+    fn py_new(n_threads: usize, index: PathBuf, n_index_threads: Option<usize>) -> PyResult<Self> {
         if n_threads == 0 {
             Err(PyValueError::new_err("n_threads cannot be zero"))
         } else {
+            let n_index_threads = match n_index_threads {
+                Some(n) => {
+                    n
+                },
+                None => {
+                    4_usize
+                }
+            };
             let mut aligner = Aligner::builder()
                 .preset(Preset::MapOnt)
-                .with_idx_threads(2)
+                .with_idx_threads(n_index_threads)
                 .with_map_threads(n_threads)
                 .with_cigar();
             aligner = aligner.with_index(index.to_str().unwrap(), None).unwrap();
@@ -351,32 +405,55 @@ impl Aligner {
         }
     }
 
-    /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (read_number: int, channel_number: int, read_id: str)
-    fn _align(&self, seq: String, metadata: Option<&PyTuple>) -> PyResult<AlignmentResult> {
-        let metadata = match metadata {
-            Some(m) => {
-                let inner: (i32, i32, String) = m.extract()?;
-                MetaData::from(inner)
-            }
-            None => MetaData::from((0, 0, String::from(""))),
-        };
-        // do the heavy work
-        let mappings = self.map(seq.as_bytes(), false, false, None, None).unwrap();
+    /// Add a result to the queue to be mapped in a batch with a later call to get_all_alignments.
+    /// Returns a Status Enum either GOOD or BAD
+    fn send_one(&self, info: &PyTuple) -> PyResult<Status> {
+        let wq = Arc::clone(&self.work_queue);
+        let info: ((Option<u32>, Option<String>), String) = info.extract()?;
+        let meta = MetaData::from((info.0.0.unwrap_or(0), info.0.1.unwrap_or(String::from(""))));
 
-        // self._pool.join();
-        // let alignment
-        let return_metadata: (i32, i32, String) = (
-            metadata.read_number,
-            metadata.channel_number,
-            metadata.read_id,
-        );
-        Ok(AlignmentResult {
-            metadata: return_metadata,
-            mappings: mappings.into_iter(),
+        Ok(match wq.push(WorkQueue::Work((meta, info.1))) {
+            Ok(()) => {
+                Status::Good
+            },
+            Err(_) => {
+                Status::Bad
+            }
         })
     }
 
+    /// Consume all the sequeneces in the queue, returing an Iterable of alignments and MetaData.
+    fn get_all_alignments(&self) -> PyResult<AlignmentBatchResultIter> {
+        let mut res = AlignmentBatchResultIter::new(self.map_threads);
+        self.map_thread(&mut res)?;
+        return Ok(res);
+    }
+
     /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (read_number: int, channel_number: int, read_id: str)
+    // fn _align(&self, seq: String, metadata: Option<&PyTuple>) -> PyResult<AlignmentResult> {
+    //     let metadata = match metadata {
+    //         Some(m) => {
+    //             let inner: (i32, i32, String) = m.extract()?;
+    //             MetaData::from(inner)
+    //         }
+    //         None => MetaData::from((0, 0, String::from(""))),
+    //     };
+    //     // do the heavy work
+    //     let mappings = self.map(seq.as_bytes(), false, false, None, None).unwrap();
+    //     // self._pool.join();
+    //     // let alignment
+    //     let return_metadata: (i32, i32, String) = (
+    //         metadata.read_number,
+    //         metadata.channel_number,
+    //         metadata.read_id,
+    //     );
+    //     Ok(AlignmentResult {
+    //         metadata: return_metadata,
+    //         mappings: mappings.into_iter(),
+    //     })
+    // }
+
+    /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (channel_number: int, read_id: str)
     fn align_batch(
         &self,
         seqs: &PyIterator,
@@ -385,10 +462,12 @@ impl Aligner {
         let wq = Arc::clone(&self.work_queue);
 
         for seq_tup in seqs.iter()?
-         {
-            let (seq, r_n, c_n, r_id): (String, u32, u32, String) = seq_tup?.extract().unwrap();
+        {
+            let (m, seq): ((u32, String), String) = seq_tup?.extract().unwrap();
+
+            let info: (MetaData, String) = (MetaData::from(m), seq);
             // println!("pushing rn {}", seq);
-            wq.push(WorkQueue::Work(seq)).unwrap();
+            wq.push(WorkQueue::Work(info)).unwrap();
             res.sequences_sent += 1;
         }
 
@@ -433,14 +512,18 @@ impl AlignmentBatchResultIter {
         let rq = Arc::clone(&self.results_queue);
         let mut work_item = rq.pop();
         // Not sure baout the next couple of lines of code
-        let backoff = crossbeam::utils::Backoff::new();
+        // let backoff = crossbeam::utils::Backoff::new();
         // let p = Parker::new();
 
         // println!("{:#?}", work_item);
-        let mut mapped_work = None;
+        let mapped_work;
         loop {
             match work_item {
                 Some(WorkQueue::Work(_)) => {
+                    mapped_work = work_item;
+                    break;
+                }
+                Some(WorkQueue::Result(_)) => {
                     mapped_work = work_item;
                     break;
                 }
@@ -449,9 +532,6 @@ impl AlignmentBatchResultIter {
                 }
                 Some(WorkQueue::Done) => {
                     self.finished_threads += 1;
-                    work_item = rq.pop();
-                }
-                _ => {
                     work_item = rq.pop();
                 }
             };
@@ -464,8 +544,8 @@ impl AlignmentBatchResultIter {
 
         return match mapped_work {
             Some(WorkQueue::Work(ar)) => IterNextOutput::Yield(ar),
+            Some(WorkQueue::Result(ar)) => IterNextOutput::Yield(ar),
             Some(WorkQueue::Done) => IterNextOutput::Return("Finished"),
-            Some(WorkQueue::Starting) => IterNextOutput::Return("Error "),
             None => IterNextOutput::Return("Error"),
         };
     }
@@ -476,7 +556,6 @@ impl Aligner {
         &self,
         res: &mut AlignmentBatchResultIter,
     ) -> Result<(), PyErr> {
-        // TODO: Make threads Builder Argument
         // let metadata = match metadata {
         //     Some(m) => {
         //         let inner: (i32, i32, String) = m.extract()?;
@@ -494,25 +573,27 @@ impl Aligner {
         for _ in 0..self.map_threads {
             let work_queue = Arc::clone(&self.work_queue);
             let results_queue = Arc::clone(&res.results_queue);
-            let counter = Arc::clone(&res.sequences_aligned);
-            // This could/should be done in the new thread, but wanting to test out the ability to move...
-            // let mut aligner = aligner.clone();
+            // let counter = Arc::clone(&res.sequences_aligned);
             let aligner = self.clone();
             std::thread::spawn(move || loop {
                 // let backoff = crossbeam::utils::Backoff::new();
+                if work_queue.is_empty() {
+                    results_queue.push(WorkQueue::Done).unwrap();
+                    break
+                }
                 let work = work_queue.pop();
                 match work {
                     Some(WorkQueue::Work(sequence)) => {
-
+                        let (m, seq) = sequence;
                         let mappings = aligner
-                            .map(sequence.as_bytes(), false, false, None, None)
+                            .map(seq.as_bytes(), false, false, None, None)
                             .expect("Unable to align");
                         // println!("MAppings {:#?}", mappings);
                         let ar = AlignmentResult {
-                            metadata: (1, 2, String::from("3")),
+                            metadata: m,
                             mappings: mappings.into_iter(),
                         };
-                        results_queue.push(WorkQueue::Work(ar)).unwrap();
+                        results_queue.push(WorkQueue::Result(ar)).unwrap();
                         // let mut num = counter.lock().unwrap();
                         // *num += 1;
                         // mem::drop(num);
@@ -973,5 +1054,7 @@ fn mappy_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Mapping>()?;
     m.add_class::<AlignmentResult>()?;
     m.add_class::<AlignmentBatchResultIter>()?;
+    m.add_class::<MetaData>()?;
+    m.add_class::<Status>()?;
     Ok(())
 }
