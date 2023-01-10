@@ -42,7 +42,7 @@ static CDNA: &str = "cdna\0";
 enum WorkQueue<T> {
     Work(T),
     Done,
-    Result(T)
+    Result(T),
 }
 /// Strand enum
 #[pyclass]
@@ -55,12 +55,8 @@ pub enum Strand {
 impl Display for Strand {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let strand_string = match self {
-            Strand::Forward => {
-                String::from("+")
-            },
-            Strand::Reverse => {
-                String::from("-")
-            }
+            Strand::Forward => String::from("+"),
+            Strand::Reverse => String::from("-"),
         };
         write!(f, "{}", strand_string)
     }
@@ -117,7 +113,7 @@ pub enum AlignmentType {
 #[derive(Debug, Clone)]
 pub enum Status {
     Good,
-    Bad
+    Bad,
 }
 
 /// Alignment struct when alignment flag is set
@@ -164,24 +160,27 @@ pub struct Mapping {
 impl Display for Mapping {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let cigar = match &self.alignment {
-            Some(al) => {
-                match &al.cigar {
-                    Some(c) => {
-                        c.clone()
-                    },
-                    None => {
-                        String::from("")
-                    }
-                }
-            }, 
-            None => {
-                String::from("")
-            }
+            Some(al) => match &al.cigar {
+                Some(c) => c.clone(),
+                None => String::from(""),
+            },
+            None => String::from(""),
         };
-        write!(f, "{}  {}  {}  {}  {}  {}  {}  {}  {}  {}  {}", 
-        self.query_start, self.query_end, self.strand, self.target_name.as_ref().unwrap_or(&String::from("")),
-        self.target_len, self.target_start, self.target_end, self.match_len, self.block_len, self.mapq, cigar
-     )
+        write!(
+            f,
+            "{}  {}  {}  {}  {}  {}  {}  {}  {}  {}  {}",
+            self.query_start,
+            self.query_end,
+            self.strand,
+            self.target_name.as_ref().unwrap_or(&String::from("")),
+            self.target_len,
+            self.target_start,
+            self.target_end,
+            self.match_len,
+            self.block_len,
+            self.mapq,
+            cigar
+        )
     }
 }
 
@@ -216,8 +215,6 @@ impl Mapping {
     }
     // todo return paf formatted results
 }
-
-
 
 // Thread local buffer (memory management) for minimap2
 thread_local! {
@@ -364,12 +361,8 @@ impl Aligner {
             Err(PyValueError::new_err("n_threads cannot be zero"))
         } else {
             let n_index_threads = match n_index_threads {
-                Some(n) => {
-                    n
-                },
-                None => {
-                    4_usize
-                }
+                Some(n) => n,
+                None => 4_usize,
             };
             let mut aligner = Aligner::builder()
                 .preset(Preset::MapOnt)
@@ -410,15 +403,14 @@ impl Aligner {
     fn send_one(&self, info: &PyTuple) -> PyResult<Status> {
         let wq = Arc::clone(&self.work_queue);
         let info: ((Option<u32>, Option<String>), String) = info.extract()?;
-        let meta = MetaData::from((info.0.0.unwrap_or(0), info.0.1.unwrap_or(String::from(""))));
+        let meta = MetaData::from((
+            info.0 .0.unwrap_or(0),
+            info.0 .1.unwrap_or(String::from("")),
+        ));
 
         Ok(match wq.push(WorkQueue::Work((meta, info.1))) {
-            Ok(()) => {
-                Status::Good
-            },
-            Err(_) => {
-                Status::Bad
-            }
+            Ok(()) => Status::Good,
+            Err(_) => Status::Bad,
         })
     }
 
@@ -454,15 +446,11 @@ impl Aligner {
     // }
 
     /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (channel_number: int, read_id: str)
-    fn align_batch(
-        &self,
-        seqs: &PyIterator,
-    ) -> PyResult<AlignmentBatchResultIter> {
+    fn align_batch(&self, seqs: &PyIterator) -> PyResult<AlignmentBatchResultIter> {
         let mut res = AlignmentBatchResultIter::new(self.map_threads);
         let wq = Arc::clone(&self.work_queue);
 
-        for seq_tup in seqs.iter()?
-        {
+        for seq_tup in seqs.iter()? {
             let (m, seq): ((u32, String), String) = seq_tup?.extract().unwrap();
 
             let info: (MetaData, String) = (MetaData::from(m), seq);
@@ -552,10 +540,7 @@ impl AlignmentBatchResultIter {
 }
 
 impl Aligner {
-    pub fn map_thread(
-        &self,
-        res: &mut AlignmentBatchResultIter,
-    ) -> Result<(), PyErr> {
+    pub fn map_thread(&self, res: &mut AlignmentBatchResultIter) -> Result<(), PyErr> {
         // let metadata = match metadata {
         //     Some(m) => {
         //         let inner: (i32, i32, String) = m.extract()?;
@@ -579,7 +564,7 @@ impl Aligner {
                 // let backoff = crossbeam::utils::Backoff::new();
                 if work_queue.is_empty() {
                     results_queue.push(WorkQueue::Done).unwrap();
-                    break
+                    break;
                 }
                 let work = work_queue.pop();
                 match work {
@@ -644,7 +629,7 @@ impl Aligner {
         }
     }
 
-    /// XOR each extra flag provided at initialisation of the aligner onto the map_opt 
+    /// XOR each extra flag provided at initialisation of the aligner onto the map_opt
     /// This should be called after present has been called - TODO implement check for this
     pub fn with_extra_flags(mut self, extra_flags: Vec<u64>) -> Self {
         for flag in extra_flags {
