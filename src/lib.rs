@@ -62,6 +62,13 @@ impl Display for Strand {
     }
 }
 
+#[pymethods]
+impl Strand {
+    fn __str__(&self) -> String {
+        format!("{}", &self)
+    }
+}
+
 /// Preset's for minimap2 config
 #[derive(Debug)]
 pub enum Preset {
@@ -326,16 +333,16 @@ impl Aligner {
 #[derive(Clone, Debug)]
 struct MetaData {
     #[pyo3(get)]
-    read_id: String,
-    #[pyo3(get)]
     channel_number: u32,
+    #[pyo3(get)]
+    read_num: u32,
 }
 
-impl From<(u32, String)> for MetaData {
-    fn from(item: (u32, String)) -> Self {
+impl From<(u32, u32)> for MetaData {
+    fn from(item: (u32, u32)) -> Self {
         MetaData {
-            read_id: item.1,
             channel_number: item.0,
+            read_num: item.1,
         }
     }
 }
@@ -346,8 +353,8 @@ impl MetaData {
         format!("{:#?}", self)
     }
 
-    fn to_tuple(&self) -> (u32, String) {
-        (self.channel_number, self.read_id.clone())
+    fn to_tuple(&self) -> (u32, u32) {
+        (self.channel_number, self.read_num.clone())
     }
 }
 
@@ -402,11 +409,8 @@ impl Aligner {
     /// Returns a Status Enum either GOOD or BAD
     fn send_one(&self, info: &PyTuple) -> PyResult<Status> {
         let wq = Arc::clone(&self.work_queue);
-        let info: ((Option<u32>, Option<String>), String) = info.extract()?;
-        let meta = MetaData::from((
-            info.0 .0.unwrap_or(0),
-            info.0 .1.unwrap_or(String::from("")),
-        ));
+        let info: ((Option<u32>, Option<u32>), String) = info.extract()?;
+        let meta = MetaData::from((info.0 .0.unwrap_or(0), info.0 .1.unwrap_or(420)));
 
         Ok(match wq.push(WorkQueue::Work((meta, info.1))) {
             Ok(()) => Status::Good,
@@ -451,7 +455,7 @@ impl Aligner {
         let wq = Arc::clone(&self.work_queue);
 
         for seq_tup in seqs.iter()? {
-            let (m, seq): ((u32, String), String) = seq_tup?.extract().unwrap();
+            let (m, seq): ((u32, u32), String) = seq_tup?.extract().unwrap();
 
             let info: (MetaData, String) = (MetaData::from(m), seq);
             // println!("pushing rn {}", seq);
