@@ -10,7 +10,7 @@ classifiers = [
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
 ]
-version = "0.0.0a"
+version = "0.0.1a"
 license = {text = "BSD 3-Clause License"}
 description = "A multithreaded python wrapper for rust bindings of minimap2."
 authors = [
