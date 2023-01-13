@@ -144,7 +144,6 @@ pub struct Mapping {
     pub query_start: i32,
     #[pyo3(get)]
     pub query_end: i32,
-    #[pyo3(get)]
     pub strand: Strand,
     #[pyo3(get)]
     pub target_name: Option<String>,
@@ -228,70 +227,58 @@ impl Mapping {
     #[getter(ctg_len)]
     fn get_target_len(&self) -> PyResult<i32> {
         Ok(self.target_len)
-    }    
+    }
 
     #[getter(r_st)]
     fn get_target_start(&self) -> PyResult<i32> {
         Ok(self.target_start)
-    }    
+    }
 
     #[getter(r_en)]
     fn get_target_end(&self) -> PyResult<i32> {
         Ok(self.target_end)
-    }    
+    }
 
     #[getter(q_st)]
     fn get_query_start(&self) -> PyResult<i32> {
         Ok(self.query_start)
-    }    
+    }
 
     #[getter(q_en)]
     fn get_query_end(&self) -> PyResult<i32> {
         Ok(self.query_end)
-    }    
+    }
 
     #[getter(strand)]
     fn get_strand(&self) -> PyResult<i32> {
         Ok(match self.strand {
-            Strand::Forward => {
-                1
-            },
-            Strand::Reverse => {
-                -1
-            },
+            Strand::Forward => 1,
+            Strand::Reverse => -1,
         })
     }
 
     #[getter(blen)]
     fn get_block_len(&self) -> PyResult<i32> {
         Ok(self.block_len)
-    }    
-
+    }
 
     #[getter(mlen)]
     fn get_match_len(&self) -> PyResult<i32> {
         Ok(self.match_len)
-    }    
+    }
 
     #[getter(cigar_str)]
     fn get_cigar_str(&self) -> PyResult<&str> {
         Ok("Not yet implemented")
-    }    
+    }
 
     #[getter(is_primary)]
     fn get_is_primary(&self) -> PyResult<bool> {
-        Ok(
-            match &self.alignment {
-                Some(al) => {
-                    al.is_primary
-                }, 
-                None => {
-                    false
-                }
-            }
-        )
-    }    
-    
+        Ok(match &self.alignment {
+            Some(al) => al.is_primary,
+            None => false,
+        })
+    }
 }
 
 // Thread local buffer (memory management) for minimap2
