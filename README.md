@@ -1,5 +1,6 @@
 # Mappy-rs
 [![CI](https://github.com/Adoni5/mappy-rs/actions/workflows/CI.yml/badge.svg)](https://github.com/Adoni5/mappy-rs/actions/workflows/CI.yml)
+
 ![A map with a crab on it](img/crab_map.webp)
 
 A multi-threaded minimap2 aligner for python.
