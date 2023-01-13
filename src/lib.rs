@@ -220,7 +220,78 @@ impl Mapping {
     fn __str__(&self) -> String {
         format!("{}", self)
     }
-    // todo return paf formatted results
+    #[getter(ctg)]
+    fn get_target_name(&self) -> PyResult<Option<String>> {
+        Ok(self.target_name.clone())
+    }
+
+    #[getter(ctg_len)]
+    fn get_target_len(&self) -> PyResult<i32> {
+        Ok(self.target_len)
+    }    
+
+    #[getter(r_st)]
+    fn get_target_start(&self) -> PyResult<i32> {
+        Ok(self.target_start)
+    }    
+
+    #[getter(r_en)]
+    fn get_target_end(&self) -> PyResult<i32> {
+        Ok(self.target_end)
+    }    
+
+    #[getter(q_st)]
+    fn get_query_start(&self) -> PyResult<i32> {
+        Ok(self.query_start)
+    }    
+
+    #[getter(q_en)]
+    fn get_query_end(&self) -> PyResult<i32> {
+        Ok(self.query_end)
+    }    
+
+    #[getter(strand)]
+    fn get_strand(&self) -> PyResult<i32> {
+        Ok(match self.strand {
+            Strand::Forward => {
+                1
+            },
+            Strand::Reverse => {
+                -1
+            },
+        })
+    }
+
+    #[getter(blen)]
+    fn get_block_len(&self) -> PyResult<i32> {
+        Ok(self.block_len)
+    }    
+
+
+    #[getter(mlen)]
+    fn get_match_len(&self) -> PyResult<i32> {
+        Ok(self.match_len)
+    }    
+
+    #[getter(cigar_str)]
+    fn get_cigar_str(&self) -> PyResult<&str> {
+        Ok("Not yet implemented")
+    }    
+
+    #[getter(is_primary)]
+    fn get_is_primary(&self) -> PyResult<bool> {
+        Ok(
+            match &self.alignment {
+                Some(al) => {
+                    al.is_primary
+                }, 
+                None => {
+                    false
+                }
+            }
+        )
+    }    
+    
 }
 
 // Thread local buffer (memory management) for minimap2
@@ -1045,5 +1116,7 @@ fn mappy_rs(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<AlignmentBatchResultIter>()?;
     m.add_class::<MetaData>()?;
     m.add_class::<Status>()?;
+    m.add_class::<Strand>()?;
+
     Ok(())
 }
