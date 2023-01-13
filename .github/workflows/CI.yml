@@ -86,7 +86,7 @@ jobs:
         with:
           toolchain: stable
           components: rustfmt
-        run: cargo fmt --check
+      - run: cargo fmt --check
 
   doc:
     runs-on: ubuntu-latest
@@ -100,10 +100,11 @@ jobs:
         with:
           toolchain: nightly
           components: doc
-        run: cargo doc --no-deps --all-features
+
 
         env:
           RUSTDOCFLAGS: --cfg docsrs
+      - run: cargo doc --no-deps --all-features
                 
   hack:
     runs-on: ubuntu-latest
