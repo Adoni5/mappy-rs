@@ -99,9 +99,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: nightly
-          components: doc
-
-
         env:
           RUSTDOCFLAGS: --cfg docsrs
       - run: cargo doc --no-deps --all-features
