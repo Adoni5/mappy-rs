@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 use std::fmt::{Display, Formatter};
 use std::mem::MaybeUninit;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -412,7 +411,7 @@ impl MetaData {
     }
 
     fn to_tuple(&self) -> (u32, u32) {
-        (self.channel_number, self.read_num.clone())
+        (self.channel_number, self.read_num)
     }
 }
 
@@ -425,10 +424,7 @@ impl Aligner {
         if n_threads == 0 {
             Err(PyValueError::new_err("n_threads cannot be zero"))
         } else {
-            let n_index_threads = match n_index_threads {
-                Some(n) => n,
-                None => 4_usize,
-            };
+            let n_index_threads = n_index_threads.unwrap_or(4_usize);
             let mut aligner = Aligner::builder()
                 .preset(Preset::MapOnt)
                 .with_idx_threads(n_index_threads)
@@ -439,8 +435,27 @@ impl Aligner {
         }
     }
 
+    // def seq(self, str name, int start=0, int end=0x7fffffff):
+    //     cdef int l
+    //     cdef char *s
+    //     if self._idx == NULL: return
+    //     s = cmappy.mappy_fetch_seq(self._idx, name.encode(), start, end, &l)
+    //     if l == 0: return None
+    //     r = s[:l] if isinstance(s, str) else s[:l].decode()
+    //     free(s)
+    //     return r
+    #[args(start = "0", end = "9000000000000")]
+    fn seq(&self, name: String, start: usize, end: usize) -> PyResult<String> {
+        if !self.has_index() {
+            return Err(PyValueError::new_err("Aligner doesn't have an index"));
+        }
+        let s = self.get_seq(name, start, end).unwrap();
+        println!("{:#?}", s);
+        Ok(s.unwrap_or(String::from("Dead")))
+    }
+
     fn __bool__(&self) -> PyResult<bool> {
-        Ok(!self.idx.is_none())
+        Ok(self.idx.is_some())
     }
 
     #[getter]
@@ -480,7 +495,7 @@ impl Aligner {
     fn get_all_alignments(&self) -> PyResult<AlignmentBatchResultIter> {
         let mut res = AlignmentBatchResultIter::new(self.map_threads);
         self.map_thread(&mut res)?;
-        return Ok(res);
+        Ok(res)
     }
 
     /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (read_number: int, channel_number: int, read_id: str)
@@ -528,7 +543,7 @@ impl Aligner {
         self.map_thread(&mut res)?;
         // let alignment
         // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
-        return Ok(res);
+        Ok(res)
     }
 }
 /// This is for demonstrating how to return a value from __next__
@@ -592,16 +607,62 @@ impl AlignmentBatchResultIter {
             }
         }
 
-        return match mapped_work {
+        match mapped_work {
             Some(WorkQueue::Work(ar)) => IterNextOutput::Yield(ar),
             Some(WorkQueue::Result(ar)) => IterNextOutput::Yield(ar),
             Some(WorkQueue::Done) => IterNextOutput::Return("Finished"),
             None => IterNextOutput::Return("Error"),
-        };
+        }
     }
 }
 
 impl Aligner {
+    pub fn get_seq(&self, name: String, start: usize, mut end: usize) -> PyResult<Option<String>> {
+        unsafe {
+            let name = std::ffi::CString::new(name).unwrap();
+            let rid = mm_idx_name2id(self.idx.as_ref().unwrap() as *const mm_idx_t, name.as_ptr());
+            if (rid < 0) {
+                println!("Cannot find name");
+                return Ok(None);
+            };
+            println!("{rid}");
+            let seq_len = (*((self.idx.unwrap()).seq.offset(rid as isize))).len;
+            println!("{start}, {end}, {seq_len}");
+            if start > seq_len.try_into().unwrap() || start >= end {
+                println!("Start or end wrong");
+                return Ok(None);
+            }
+            if end > seq_len.try_into().unwrap() {
+                println!("setting end");
+                end = seq_len.try_into().unwrap()
+            }
+            let mut s = String::with_capacity(end - start + 1);
+            let t = s.as_bytes_mut();
+            println!("Pre");
+            let len = mm_idx_getseq(
+                self.idx.as_ref().unwrap() as *const mm_idx_t,
+                rid as u32,
+                start as u32,
+                end as u32,
+                t.as_mut_ptr(),
+            );
+            println!("t is {:#?}, len is {len}", t);
+            // for i in 0..len {
+            //     println!("{i}");
+            //     *s.get_mut(i as usize).unwrap() =
+            //         "ACGTN".as_bytes()[*s.get(i as usize).unwrap() as usize];
+            // }
+            // println!("s is {:#?}, len is {len}", s);
+
+            // let s = match String::from_utf8(s) {
+            //     Ok(v) => v,
+            //     Err(e) => panic!("Invalid UTF-8 sequence: {}", e),
+            // };
+
+            Ok(Some(String::from("")))
+        }
+    }
+
     pub fn map_thread(&self, res: &mut AlignmentBatchResultIter) -> Result<(), PyErr> {
         // let metadata = match metadata {
         //     Some(m) => {
@@ -614,7 +675,7 @@ impl Aligner {
         // };
 
         // res.sequences_sent = seqs.len() as u32;
-        res.sequences_sent = 100 as u32;
+        res.sequences_sent = 100_u32;
 
         // 8 threads
         for _ in 0..self.map_threads {
@@ -959,10 +1020,10 @@ pub enum FileFormat {
 
 #[allow(dead_code)]
 pub fn detect_file_format(buffer: &[u8]) -> Result<FileFormat, &'static str> {
-    let buffer = from_utf8(&buffer).expect("Unable to parse file as UTF-8");
-    if buffer.starts_with(">") {
+    let buffer = from_utf8(buffer).expect("Unable to parse file as UTF-8");
+    if buffer.starts_with('>') {
         Ok(FileFormat::FASTA)
-    } else if buffer.starts_with("@") {
+    } else if buffer.starts_with('@') {
         Ok(FileFormat::FASTQ)
     } else {
         Err("Unknown file format")
