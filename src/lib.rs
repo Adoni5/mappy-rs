@@ -199,10 +199,7 @@ unsafe impl Send for Aligner {}
 #[pymethods]
 impl Aligner {
     #[new]
-    #[pyo3(signature = (fn_idx_in=None, preset=None, k=None, w=None, min_cnt=None, 
-                        min_chain_score=None, min_dp_score=None, bw=None, best_n=None,
-                        n_threads=3, fn_idx_out=None, max_frag_len=None, extra_flags=None,
-                        seq=None, scoring=None))]
+    #[pyo3(signature = (fn_idx_in=None, preset=None, k=None, w=None, min_cnt=None, min_chain_score=None, min_dp_score=None, bw=None, best_n=None, n_threads=3, fn_idx_out=None, max_frag_len=None, extra_flags=None, seq=None, scoring=None))]
     #[allow(clippy::too_many_arguments)]
     fn py_new(
         fn_idx_in: Option<std::path::PathBuf>,
