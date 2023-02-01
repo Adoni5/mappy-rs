@@ -1,7 +1,9 @@
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyIterator, PyTuple};
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
 
 /// Strand enum
 #[pyclass]
@@ -193,6 +195,8 @@ impl Mapping {
 pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
+    // Number of mapping threads
+    map_threads: u32,
 }
 unsafe impl Send for Aligner {}
 
@@ -396,6 +400,34 @@ impl Aligner {
             Err(e) => Err(PyRuntimeError::new_err(e)),
         }
     }
+
+    #[setter]
+    fn set_map_threads(&mut self, value: u32) -> PyResult<()> {
+        self.map_threads = value;
+        Ok(())
+    }
+
+    /// Align an iterator of Dictionaries, which must at least contain a key value pair of "seq" and the corresponding sequence to be mapped
+    fn map_iter_batch(&self, seqs: &PyIterator) -> PyResult<AlignmentBatchResultIter> {
+        let mut res = AlignmentBatchResultIter::new(self.map_threads);
+        let wq = Arc::clone(&self.work_queue);
+
+        for data_dict in seqs.iter()? {
+            // println!("pushing rn {}", seq);
+            wq.push(WorkQueue::Work(data_dict.get_item("seq").unwrap()))
+                .unwrap();
+            res.sequences_sent += 1;
+        }
+
+        for _ in 0..self.map_threads {
+            wq.push(WorkQueue::Done).unwrap();
+        }
+        // do the heavy work
+        self.map_thread(&mut res)?;
+        // let alignment
+        // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
+        Ok(res)
+    }
 }
 
 impl Aligner {
@@ -459,6 +491,50 @@ impl Aligner {
             }
         }
         Ok(std::string::String::from_utf8(seq_buf).unwrap())
+    }
+
+    pub fn threaded_map(&self, res: &mut AlignmentBatchResultIter) -> Result<(), PyErr> {
+        for _ in 0..self.map_threads {
+            let work_queue = Arc::clone(&self.work_queue);
+            let results_queue = Arc::clone(&res.results_queue);
+            // let counter = Arc::clone(&res.sequences_aligned);
+            let aligner = self.clone();
+            std::thread::spawn(move || loop {
+                // let backoff = crossbeam::utils::Backoff::new();
+                if work_queue.is_empty() {
+                    results_queue.push(WorkQueue::Done).unwrap();
+                    break;
+                }
+                let work = work_queue.pop();
+                match work {
+                    Some(WorkQueue::Work(sequence)) => {
+                        let (m, seq) = sequence;
+                        let mappings = aligner
+                            .map(seq.as_bytes(), false, false, None, None)
+                            .expect("Unable to align");
+                        // println!("MAppings {:#?}", mappings);
+                        let ar = AlignmentResult {
+                            metadata: m,
+                            mappings: mappings.into_iter(),
+                        };
+                        results_queue.push(WorkQueue::Result(ar)).unwrap();
+                        // let mut num = counter.lock().unwrap();
+                        // *num += 1;
+                        // mem::drop(num);
+                    }
+                    Some(WorkQueue::Done) => {
+                        results_queue.push(WorkQueue::Done).unwrap();
+                        break;
+                    }
+                    None => std::thread::sleep(Duration::from_millis(100)),
+                    _ => std::thread::sleep(Duration::from_millis(100)),
+                }
+            });
+        }
+
+        // This thread feeds all the sequences we have seen into the work queue to be processed above
+
+        Ok(())
     }
 }
 
