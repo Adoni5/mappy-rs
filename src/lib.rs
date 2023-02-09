@@ -1,6 +1,6 @@
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::PyTuple;
+use pyo3::types::{PyTuple, PyIterator};
 use std::fmt::{Display, Formatter};
 
 /// Strand enum
@@ -17,7 +17,7 @@ impl Display for Strand {
             Strand::Forward => String::from("+"),
             Strand::Reverse => String::from("-"),
         };
-        write!(f, "{}", strand_string)
+        write!(f, "{strand_string}")
     }
 }
 
@@ -99,11 +99,11 @@ impl Display for Mapping {
 #[pymethods]
 impl Mapping {
     fn __repr__(&self) -> String {
-        format!("{:#?}", self)
+        format!("{self:#?}")
     }
 
     fn __str__(&self) -> String {
-        format!("{}", self)
+        format!("{self}")
     }
     #[getter(ctg)]
     fn get_target_name(&self) -> PyResult<String> {
@@ -193,6 +193,8 @@ impl Mapping {
 pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
+    /// Work queue to store reads for multi threaded mappings
+    pub work_queue: Option<Arc<ArrayQueue<WorkQueue<(MetaData, String)>>>>
 }
 unsafe impl Send for Aligner {}
 
@@ -460,10 +462,81 @@ impl Aligner {
         }
         Ok(std::string::String::from_utf8(seq_buf).unwrap())
     }
+
+    /// Align a batch of reads provided in an iterator.
+    pub fn map_batch(&self, batch: &PyIterator, n_threads: Option<usize>) -> PyResult<()> {
+        for _ in 0..n_threads.unwrap_or(4) {
+            
+        }
+        Ok(())
+    }
 }
 
 #[pymodule]
 fn mappy_rs(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<Aligner>()?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pyo3::Python;
+    use std::path::PathBuf;
+    #[test]
+    fn load_index() {
+        Python::with_gil(|py| {
+            let al = Aligner::py_new(
+                Some(PathBuf::from("test/test.mmi")),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                4_usize,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            assert!(al.aligner.has_index());
+        });
+        // println!("hjdwa");
+    }
+
+    #[test]
+    fn map_one() {
+        Python::with_gil(|py| {
+            let al = Aligner::py_new(
+                Some(PathBuf::from("test/test.mmi")),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                4_usize,
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .unwrap();
+            assert!(al.aligner.has_index());
+            let mappings = al.map(String::from("atCCTACACTGCATAAACTATTTTGcaccataaaaaaaagttatgtgtgGGTCTAAAATAATTTGCTGAGCAATTAATGATTTCTAAATGATGCTAAAGTGAACCATTGTAatgttatatgaaaaataaatacacaattaagATCAACACAGTGAAATAACATTGATTGGGTGATTTCAAATGGGGTCTATctgaataatgttttatttaacagtaatttttatttctatcaatttttagtaatatctacaaatattttgttttaggcTGCCAGAAGATCGGCGGTGCAAGGTCAGAGGTGAGATGTTAGGTGGTTCCACCAACTGCACGGAAGAGCTGCCCTCTGTCATTCAAAATTTGACAGGTACAAACAGactatattaaataagaaaaacaaactttttaaaggCTTGACCATTAGTGAATAGGTTATATGCTTATTATTTCCATTTAGCTTTTTGAGACTAGTATGATTAGACAAATCTGCTTAGttcattttcatataatattgaGGAACAAAATTTGTGAGATTTTGCTAAAATAACTTGCTTTGCTTGTTTATAGAGGCacagtaaatcttttttattattattataattttagattttttaatttttaaat"), None, true, false).unwrap();
+            println!("{mappings:#?}");
+            assert!(mappings.len()==1);
+            assert!(mappings[0].get_target_start().unwrap()==0);
+            assert!(mappings[0].get_target_end().unwrap()==621);
+        });
+    }
+
 }
