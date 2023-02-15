@@ -2,6 +2,9 @@ use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyTuple, PyIterator};
 use std::fmt::{Display, Formatter};
+use std::sync::Arc;
+use crossbeam::queue::ArrayQueue;
+use threadpool::ThreadPool;
 
 /// Strand enum
 #[pyclass]
@@ -9,6 +12,13 @@ use std::fmt::{Display, Formatter};
 pub enum Strand {
     Forward,
     Reverse,
+}
+
+#[derive(Debug)]
+enum WorkQueue<T> {
+    Work(T),
+    Done,
+    Result(T),
 }
 
 impl Display for Strand {
@@ -194,7 +204,9 @@ pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
     /// Work queue to store reads for multi threaded mappings
-    pub work_queue: Option<Arc<ArrayQueue<WorkQueue<(MetaData, String)>>>>
+    work_queue: Option<Arc<ArrayQueue<WorkQueue<()>>>>,
+    /// Threadpool?
+    pool: Option<ThreadPool>
 }
 unsafe impl Send for Aligner {}
 
@@ -317,6 +329,8 @@ impl Aligner {
                     idx: Some(unsafe { *idx.assume_init() }),
                     idx_reader: Some(unsafe { *idx_reader }),
                 },
+                work_queue: None,
+                pool: None
             });
         }
         Err(PyRuntimeError::new_err("Did not create or open an index"))
@@ -398,6 +412,14 @@ impl Aligner {
             Err(e) => Err(PyRuntimeError::new_err(e)),
         }
     }
+
+    ///  Enable multi threading on this mappy instance.
+    #[pyo3(signature = (n_threads), text_signature = "(n_threads=8)")]
+    fn enable_threading(&mut self, n_threads: usize) -> PyResult<()> {
+        self.work_queue = Some(Arc::new(ArrayQueue::new(50000)));
+        self.pool = Some(ThreadPool::new(n_threads));
+        Ok(())
+    }
 }
 
 impl Aligner {
@@ -464,9 +486,9 @@ impl Aligner {
     }
 
     /// Align a batch of reads provided in an iterator.
-    pub fn map_batch(&self, batch: &PyIterator, n_threads: Option<usize>) -> PyResult<()> {
-        for _ in 0..n_threads.unwrap_or(4) {
-            
+    pub fn map_batch(&self, batch: &PyIterator) -> PyResult<()> {
+        if self.pool.is_none() {
+            return Err(PyRuntimeError::new_err("Multi threading not enabled on this instance. Please call `.enable_threading()`"))
         }
         Ok(())
     }
