@@ -504,12 +504,19 @@ impl Aligner {
             let data: HashMap<String, Py<PyAny>> = py_dict.extract()?;
             res.data.insert(id_num, data);
             let sendy = res.tx.clone();
-            let seq: String = py_dict.get_item("seq")?.extract()?;
+            let seq: String = py_dict.get_item("seq").expect("AHHH Key 🗝️  not found in iterated dictionary").extract()?;
             let aligner = self.clone();
             p.execute(move|| {
                 let maps = aligner.map(seq, None, true, true).unwrap();
                 for map in maps {
-                    sendy.send(WorkQueue::Result((map, id_num))).unwrap();
+                    match sendy.send(WorkQueue::Result((map, id_num))) {
+                        Ok(()) => {
+                            continue
+                        },
+                        Err(e) => {
+                            println!("Internal error returning data. {e}");
+                        }
+                    }
                 }
             });
 
