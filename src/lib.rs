@@ -6,6 +6,7 @@ use pyo3::types::{PyTuple, PyIterator};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use threadpool::ThreadPool;
+use fnv::FnvHashMap;
 
 /// Strand enum
 #[pyclass]
@@ -523,7 +524,7 @@ impl Aligner {
 pub struct AlignmentBatchResultIter {
     tx: Sender<WorkQueue<(Mapping, usize)>>,
     rx: Receiver<WorkQueue<(Mapping, usize)>>,
-    data: HashMap<usize, HashMap<String, Py<PyAny>>>
+    data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>
 }
 
 impl Default for AlignmentBatchResultIter {
@@ -541,7 +542,7 @@ impl AlignmentBatchResultIter {
         AlignmentBatchResultIter {
             tx,
             rx,
-            data: HashMap::new()
+            data: FnvHashMap::default()
         }
     }
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
