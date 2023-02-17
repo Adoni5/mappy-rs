@@ -3,6 +3,7 @@ use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pyclass::IterNextOutput;
 use pyo3::types::{PyTuple, PyIterator};
+use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use threadpool::ThreadPool;
 
@@ -498,8 +499,11 @@ impl Aligner {
         }
         let p = ThreadPool::new(self.n_threads);
         for (id_num, py_dicts ) in seqs.iter()?.enumerate() {
+            let py_dict = py_dicts?;
+            let data: HashMap<String, Py<PyAny>> = py_dict.extract()?;
+            res.data.insert(id_num, data);
             let sendy = res.tx.clone();
-            let seq: String = py_dicts?.get_item("seq")?.extract()?;
+            let seq: String = py_dict.get_item("seq")?.extract()?;
             let aligner = self.clone();
             p.execute(move|| {
                 let maps = aligner.map(seq, None, true, true).unwrap();
@@ -518,7 +522,8 @@ impl Aligner {
 #[pyclass]
 pub struct AlignmentBatchResultIter {
     tx: Sender<WorkQueue<(Mapping, usize)>>,
-    rx: Receiver<WorkQueue<(Mapping, usize)>>
+    rx: Receiver<WorkQueue<(Mapping, usize)>>,
+    data: HashMap<usize, HashMap<String, Py<PyAny>>>
 }
 
 impl Default for AlignmentBatchResultIter {
@@ -536,13 +541,14 @@ impl AlignmentBatchResultIter {
         AlignmentBatchResultIter {
             tx,
             rx,
+            data: HashMap::new()
         }
     }
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
-    fn __next__(&mut self) -> IterNextOutput<Mapping, &'static str> {
+    fn __next__(&mut self) -> IterNextOutput<(Mapping, HashMap<String, Py<PyAny>>), &'static str> {
         let try_recv = self.rx.recv();
         match try_recv {
             Ok(work_queue_member) => {
@@ -550,8 +556,9 @@ impl AlignmentBatchResultIter {
                     WorkQueue::Done => {
                         IterNextOutput::Return("Home you're finished, 'cause I am...")
                     },
-                    WorkQueue::Result((mapping, _id_num)) => {
-                        IterNextOutput::Yield(mapping)
+                    WorkQueue::Result((mapping, id_num)) => {
+                        let data = self.data.get(&id_num).unwrap().clone();
+                        IterNextOutput::Yield((mapping, data))
                     }
                 }
             }
