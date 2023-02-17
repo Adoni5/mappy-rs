@@ -1,9 +1,9 @@
+use crossbeam::channel::{Receiver, bounded, Sender, RecvError};
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::pyclass::IterNextOutput;
 use pyo3::types::{PyTuple, PyIterator};
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
-use crossbeam::queue::ArrayQueue;
 use threadpool::ThreadPool;
 
 /// Strand enum
@@ -16,7 +16,6 @@ pub enum Strand {
 
 #[derive(Debug)]
 enum WorkQueue<T> {
-    Work(T),
     Done,
     Result(T),
 }
@@ -203,10 +202,9 @@ impl Mapping {
 pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
-    /// Work queue to store reads for multi threaded mappings
-    work_queue: Option<Arc<ArrayQueue<WorkQueue<()>>>>,
-    /// Threadpool?
-    pool: Option<ThreadPool>
+    /// Number of mapping threads
+    n_threads:usize,
+
 }
 unsafe impl Send for Aligner {}
 
@@ -329,9 +327,7 @@ impl Aligner {
                     idx: Some(unsafe { *idx.assume_init() }),
                     idx_reader: Some(unsafe { *idx_reader }),
                 },
-                work_queue: None,
-                pool: None
-            });
+                n_threads: 0            });
         }
         Err(PyRuntimeError::new_err("Did not create or open an index"))
     }
@@ -416,11 +412,21 @@ impl Aligner {
     ///  Enable multi threading on this mappy instance.
     #[pyo3(signature = (n_threads), text_signature = "(n_threads=8)")]
     fn enable_threading(&mut self, n_threads: usize) -> PyResult<()> {
-        self.work_queue = Some(Arc::new(ArrayQueue::new(50000)));
-        self.pool = Some(ThreadPool::new(n_threads));
+        self.n_threads = n_threads;
         Ok(())
     }
+
+    /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (channel_number: int, read_id: str)
+    fn map_batch(&self, seqs: &PyIterator) -> PyResult<AlignmentBatchResultIter> {
+        let mut res = AlignmentBatchResultIter::new();
+        // do the heavy work
+        self._map_batch(&mut res, seqs)?;
+        // let alignment
+        // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
+        Ok(res)
+    }
 }
+
 
 impl Aligner {
     pub fn _get_index_seq(&self, name: String, start: i32, mut end: i32) -> Result<String, &str> {
@@ -486,11 +492,73 @@ impl Aligner {
     }
 
     /// Align a batch of reads provided in an iterator.
-    pub fn map_batch(&self, batch: &PyIterator) -> PyResult<()> {
-        if self.pool.is_none() {
+    pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyIterator) -> PyResult<()> {
+        if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err("Multi threading not enabled on this instance. Please call `.enable_threading()`"))
         }
+        let p = ThreadPool::new(self.n_threads);
+        for (id_num, py_dicts ) in seqs.iter()?.enumerate() {
+            let sendy = res.tx.clone();
+            let seq: String = py_dicts?.get_item("seq")?.extract()?;
+            let aligner = self.clone();
+            p.execute(move|| {
+                let maps = aligner.map(seq, None, true, true).unwrap();
+                for map in maps {
+                    sendy.send(WorkQueue::Result((map, id_num))).unwrap();
+                }
+            });
+
+        }
+        p.join();
+        res.tx.send(WorkQueue::Done).unwrap();
         Ok(())
+    }
+}
+
+#[pyclass]
+pub struct AlignmentBatchResultIter {
+    tx: Sender<WorkQueue<(Mapping, usize)>>,
+    rx: Receiver<WorkQueue<(Mapping, usize)>>
+}
+
+impl Default for AlignmentBatchResultIter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Iterator for the batch results from a multi threaded call to mapper
+#[pymethods]
+impl AlignmentBatchResultIter {
+    #[new]
+    pub fn new() -> Self {
+        let (tx, rx) = bounded(4000);
+        AlignmentBatchResultIter {
+            tx,
+            rx,
+        }
+    }
+    fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
+        slf
+    }
+
+    fn __next__(&mut self) -> IterNextOutput<Mapping, &'static str> {
+        let try_recv = self.rx.recv();
+        match try_recv {
+            Ok(work_queue_member) => {
+                match work_queue_member {
+                    WorkQueue::Done => {
+                        IterNextOutput::Return("Home you're finished, 'cause I am...")
+                    },
+                    WorkQueue::Result((mapping, _id_num)) => {
+                        IterNextOutput::Yield(mapping)
+                    }
+                }
+            }
+            Err(RecvError) => {
+                IterNextOutput::Return("Home you're finished, 'cause I am...")
+            }
+        }
     }
 }
 
@@ -528,7 +596,6 @@ mod tests {
             .unwrap();
             assert!(al.aligner.has_index());
         });
-        // println!("hjdwa");
     }
 
     #[test]
