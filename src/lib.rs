@@ -432,6 +432,21 @@ impl Aligner {
     fn __bool__(&self) -> PyResult<bool> {
         Ok(self.aligner.idx.is_some())
     }
+
+    #[getter]
+    fn k(&self) -> PyResult<i32> {
+        Ok(self.aligner.idx.unwrap().k)
+    }
+
+    #[getter]
+    fn w(&self) -> PyResult<i32> {
+        Ok(self.aligner.idx.unwrap().w)
+    }
+
+    #[getter]
+    fn n_seq(&self) -> PyResult<u32> {
+        Ok(self.aligner.idx.unwrap().n_seq)
+    }
 }
 
 impl Aligner {
