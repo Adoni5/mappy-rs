@@ -1,12 +1,12 @@
-use crossbeam::channel::{Receiver, bounded, Sender, RecvError};
+use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
+use fnv::FnvHashMap;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pyclass::IterNextOutput;
-use pyo3::types::{PyTuple, PyIterator};
+use pyo3::types::{PyIterator, PyTuple};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use threadpool::ThreadPool;
-use fnv::FnvHashMap;
 
 /// Strand enum
 #[pyclass]
@@ -205,8 +205,7 @@ pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
     /// Number of mapping threads
-    n_threads:usize,
-
+    n_threads: usize,
 }
 unsafe impl Send for Aligner {}
 
@@ -330,7 +329,8 @@ impl Aligner {
                     idx: Some(unsafe { *idx.assume_init() }),
                     idx_reader: Some(unsafe { *idx_reader }),
                 },
-                n_threads: 0            });
+                n_threads: 0,
+            });
         }
         Err(PyRuntimeError::new_err("Did not create or open an index"))
     }
@@ -498,30 +498,36 @@ impl Aligner {
     }
 
     /// Align a batch of reads provided in an iterator.
-    pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyIterator) -> PyResult<()> {
+    pub fn _map_batch(
+        &self,
+        res: &mut AlignmentBatchResultIter,
+        seqs: &PyIterator,
+    ) -> PyResult<()> {
         if self.n_threads == 0_usize {
-            return Err(PyRuntimeError::new_err("Multi threading not enabled on this instance. Please call `.enable_threading()`"))
+            return Err(PyRuntimeError::new_err(
+                "Multi threading not enabled on this instance. Please call `.enable_threading()`",
+            ));
         }
         let p = ThreadPool::new(self.n_threads);
-        for (id_num, py_dicts ) in seqs.iter()?.enumerate() {
+        for (id_num, py_dicts) in seqs.iter()?.enumerate() {
             let py_dict = py_dicts?;
             let data: HashMap<String, Py<PyAny>> = py_dict.extract()?;
             res.data.insert(id_num, data);
             let sendy = res.tx.clone();
-            let seq: String = py_dict.get_item("seq").expect("AHHH Key 🗝️  not found in iterated dictionary").extract()?;
+            let seq: String = py_dict
+                .get_item("seq")
+                .expect("AHHH Key 🗝️  not found in iterated dictionary")
+                .extract()?;
             let aligner = self.clone();
-            p.execute(move|| {
+            p.execute(move || {
                 let maps = aligner.map(seq, None, true, true).unwrap();
                 match sendy.send(WorkQueue::Result((maps, id_num))) {
-                    Ok(()) => {
-                    },
+                    Ok(()) => {}
                     Err(e) => {
                         println!("Internal error returning data. {e}");
                     }
                 }
-                
             });
-
         }
         p.join();
         res.tx.send(WorkQueue::Done).unwrap();
@@ -533,7 +539,7 @@ impl Aligner {
 pub struct AlignmentBatchResultIter {
     tx: Sender<WorkQueue<(Vec<Mapping>, usize)>>,
     rx: Receiver<WorkQueue<(Vec<Mapping>, usize)>>,
-    data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>
+    data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>,
 }
 
 impl Default for AlignmentBatchResultIter {
@@ -551,30 +557,26 @@ impl AlignmentBatchResultIter {
         AlignmentBatchResultIter {
             tx,
             rx,
-            data: FnvHashMap::default()
+            data: FnvHashMap::default(),
         }
     }
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
-    fn __next__(&mut self) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
+    fn __next__(
+        &mut self,
+    ) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
         let try_recv = self.rx.recv();
         match try_recv {
-            Ok(work_queue_member) => {
-                match work_queue_member {
-                    WorkQueue::Done => {
-                        IterNextOutput::Return("Home you're finished, 'cause I am...")
-                    },
-                    WorkQueue::Result((mapping, id_num)) => {
-                        let data = self.data.get(&id_num).unwrap().clone();
-                        IterNextOutput::Yield((mapping, data))
-                    }
+            Ok(work_queue_member) => match work_queue_member {
+                WorkQueue::Done => IterNextOutput::Return("Home you're finished, 'cause I am..."),
+                WorkQueue::Result((mapping, id_num)) => {
+                    let data = self.data.get(&id_num).unwrap().clone();
+                    IterNextOutput::Yield((mapping, data))
                 }
-            }
-            Err(RecvError) => {
-                IterNextOutput::Return("Home you're finished, 'cause I am...")
-            }
+            },
+            Err(RecvError) => IterNextOutput::Return("Home you're finished, 'cause I am..."),
         }
     }
 }
@@ -639,10 +641,9 @@ mod tests {
             assert!(al.aligner.has_index());
             let mappings = al.map(String::from("atCCTACACTGCATAAACTATTTTGcaccataaaaaaaagttatgtgtgGGTCTAAAATAATTTGCTGAGCAATTAATGATTTCTAAATGATGCTAAAGTGAACCATTGTAatgttatatgaaaaataaatacacaattaagATCAACACAGTGAAATAACATTGATTGGGTGATTTCAAATGGGGTCTATctgaataatgttttatttaacagtaatttttatttctatcaatttttagtaatatctacaaatattttgttttaggcTGCCAGAAGATCGGCGGTGCAAGGTCAGAGGTGAGATGTTAGGTGGTTCCACCAACTGCACGGAAGAGCTGCCCTCTGTCATTCAAAATTTGACAGGTACAAACAGactatattaaataagaaaaacaaactttttaaaggCTTGACCATTAGTGAATAGGTTATATGCTTATTATTTCCATTTAGCTTTTTGAGACTAGTATGATTAGACAAATCTGCTTAGttcattttcatataatattgaGGAACAAAATTTGTGAGATTTTGCTAAAATAACTTGCTTTGCTTGTTTATAGAGGCacagtaaatcttttttattattattataattttagattttttaatttttaaat"), None, true, false).unwrap();
             println!("{mappings:#?}");
-            assert!(mappings.len()==1);
-            assert!(mappings[0].get_target_start().unwrap()==0);
-            assert!(mappings[0].get_target_end().unwrap()==621);
+            assert!(mappings.len() == 1);
+            assert!(mappings[0].get_target_start().unwrap() == 0);
+            assert!(mappings[0].get_target_end().unwrap() == 621);
         });
     }
-
 }
