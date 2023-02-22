@@ -283,8 +283,9 @@ impl Aligner {
                 if scoring.len() >= 6 {
                     mapopts.q2 = scoring.get_item(4).unwrap().extract::<i32>().unwrap();
                     mapopts.e2 = scoring.get_item(5).unwrap().extract::<i32>().unwrap();
-                    if scoring.len() >= 7 {}
-                    mapopts.sc_ambi = scoring.get_item(6).unwrap().extract::<i32>().unwrap();
+                    if scoring.len() >= 7 {
+                        mapopts.sc_ambi = scoring.get_item(6).unwrap().extract::<i32>().unwrap();
+                    }
                 }
             }
         }
@@ -427,8 +428,11 @@ impl Aligner {
         // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
         Ok(res)
     }
-}
 
+    fn __bool__(&self) -> PyResult<bool> {
+        Ok(self.idx.is_some())
+    }
+}
 
 impl Aligner {
     pub fn _get_index_seq(&self, name: String, start: i32, mut end: i32) -> Result<String, &str> {
