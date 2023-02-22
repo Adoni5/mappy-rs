@@ -508,16 +508,14 @@ impl Aligner {
             let aligner = self.clone();
             p.execute(move|| {
                 let maps = aligner.map(seq, None, true, true).unwrap();
-                for map in maps {
-                    match sendy.send(WorkQueue::Result((map, id_num))) {
-                        Ok(()) => {
-                            continue
-                        },
-                        Err(e) => {
-                            println!("Internal error returning data. {e}");
-                        }
+                match sendy.send(WorkQueue::Result((maps, id_num))) {
+                    Ok(()) => {
+                    },
+                    Err(e) => {
+                        println!("Internal error returning data. {e}");
                     }
                 }
+                
             });
 
         }
@@ -529,8 +527,8 @@ impl Aligner {
 
 #[pyclass]
 pub struct AlignmentBatchResultIter {
-    tx: Sender<WorkQueue<(Mapping, usize)>>,
-    rx: Receiver<WorkQueue<(Mapping, usize)>>,
+    tx: Sender<WorkQueue<(Vec<Mapping>, usize)>>,
+    rx: Receiver<WorkQueue<(Vec<Mapping>, usize)>>,
     data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>
 }
 
@@ -556,7 +554,7 @@ impl AlignmentBatchResultIter {
         slf
     }
 
-    fn __next__(&mut self) -> IterNextOutput<(Mapping, HashMap<String, Py<PyAny>>), &'static str> {
+    fn __next__(&mut self) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
         let try_recv = self.rx.recv();
         match try_recv {
             Ok(work_queue_member) => {
