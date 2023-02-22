@@ -430,7 +430,7 @@ impl Aligner {
     }
 
     fn __bool__(&self) -> PyResult<bool> {
-        Ok(self.idx.is_some())
+        Ok(self.aligner.idx.is_some())
     }
 }
 
