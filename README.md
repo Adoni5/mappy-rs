@@ -6,7 +6,7 @@
 A multi-threaded minimap2 aligner for python.
 
 ## Developers
-Start with some Docs on Py03 - https://pyo3.rs/v0.16.4/
+Start with some Docs on Py03 - https://pyo3.rs/latest/
 
 In order to build an importable module - 
 
