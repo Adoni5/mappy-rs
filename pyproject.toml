@@ -23,3 +23,6 @@ maintainers = [
 ]
 homepage = "https://github.com/adoni5/mappy-rs"
 keywords = ["alignment", "bioinformatics", "python", "rust", "minimap2"]
+
+[tool.maturin]
+features = ["pyo3/extension-module"]

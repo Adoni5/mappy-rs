@@ -1,12 +1,12 @@
-use crossbeam::channel::{Receiver, bounded, Sender, RecvError};
+use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
+use fnv::FnvHashMap;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pyclass::IterNextOutput;
-use pyo3::types::{PyTuple, PyIterator};
+use pyo3::types::{PyIterator, PyTuple};
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use threadpool::ThreadPool;
-use fnv::FnvHashMap;
 
 /// Strand enum
 #[pyclass]
@@ -205,8 +205,7 @@ pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
     /// Number of mapping threads
-    n_threads:usize,
-
+    n_threads: usize,
 }
 unsafe impl Send for Aligner {}
 
@@ -283,8 +282,9 @@ impl Aligner {
                 if scoring.len() >= 6 {
                     mapopts.q2 = scoring.get_item(4).unwrap().extract::<i32>().unwrap();
                     mapopts.e2 = scoring.get_item(5).unwrap().extract::<i32>().unwrap();
-                    if scoring.len() >= 7 {}
-                    mapopts.sc_ambi = scoring.get_item(6).unwrap().extract::<i32>().unwrap();
+                    if scoring.len() >= 7 {
+                        mapopts.sc_ambi = scoring.get_item(6).unwrap().extract::<i32>().unwrap();
+                    }
                 }
             }
         }
@@ -329,7 +329,8 @@ impl Aligner {
                     idx: Some(unsafe { *idx.assume_init() }),
                     idx_reader: Some(unsafe { *idx_reader }),
                 },
-                n_threads: 0            });
+                n_threads: 0,
+            });
         }
         Err(PyRuntimeError::new_err("Did not create or open an index"))
     }
@@ -427,8 +428,26 @@ impl Aligner {
         // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
         Ok(res)
     }
-}
 
+    fn __bool__(&self) -> PyResult<bool> {
+        Ok(self.aligner.idx.is_some())
+    }
+
+    #[getter]
+    fn k(&self) -> PyResult<i32> {
+        Ok(self.aligner.idx.unwrap().k)
+    }
+
+    #[getter]
+    fn w(&self) -> PyResult<i32> {
+        Ok(self.aligner.idx.unwrap().w)
+    }
+
+    #[getter]
+    fn n_seq(&self) -> PyResult<u32> {
+        Ok(self.aligner.idx.unwrap().n_seq)
+    }
+}
 
 impl Aligner {
     pub fn _get_index_seq(&self, name: String, start: i32, mut end: i32) -> Result<String, &str> {
@@ -494,30 +513,36 @@ impl Aligner {
     }
 
     /// Align a batch of reads provided in an iterator.
-    pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyIterator) -> PyResult<()> {
+    pub fn _map_batch(
+        &self,
+        res: &mut AlignmentBatchResultIter,
+        seqs: &PyIterator,
+    ) -> PyResult<()> {
         if self.n_threads == 0_usize {
-            return Err(PyRuntimeError::new_err("Multi threading not enabled on this instance. Please call `.enable_threading()`"))
+            return Err(PyRuntimeError::new_err(
+                "Multi threading not enabled on this instance. Please call `.enable_threading()`",
+            ));
         }
         let p = ThreadPool::new(self.n_threads);
-        for (id_num, py_dicts ) in seqs.iter()?.enumerate() {
+        for (id_num, py_dicts) in seqs.iter()?.enumerate() {
             let py_dict = py_dicts?;
             let data: HashMap<String, Py<PyAny>> = py_dict.extract()?;
             res.data.insert(id_num, data);
             let sendy = res.tx.clone();
-            let seq: String = py_dict.get_item("seq").expect("AHHH Key 🗝️  not found in iterated dictionary").extract()?;
+            let seq: String = py_dict
+                .get_item("seq")
+                .expect("AHHH Key 🗝️  not found in iterated dictionary")
+                .extract()?;
             let aligner = self.clone();
-            p.execute(move|| {
+            p.execute(move || {
                 let maps = aligner.map(seq, None, true, true).unwrap();
                 match sendy.send(WorkQueue::Result((maps, id_num))) {
-                    Ok(()) => {
-                    },
+                    Ok(()) => {}
                     Err(e) => {
                         println!("Internal error returning data. {e}");
                     }
                 }
-                
             });
-
         }
         p.join();
         res.tx.send(WorkQueue::Done).unwrap();
@@ -529,7 +554,7 @@ impl Aligner {
 pub struct AlignmentBatchResultIter {
     tx: Sender<WorkQueue<(Vec<Mapping>, usize)>>,
     rx: Receiver<WorkQueue<(Vec<Mapping>, usize)>>,
-    data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>
+    data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>,
 }
 
 impl Default for AlignmentBatchResultIter {
@@ -547,30 +572,26 @@ impl AlignmentBatchResultIter {
         AlignmentBatchResultIter {
             tx,
             rx,
-            data: FnvHashMap::default()
+            data: FnvHashMap::default(),
         }
     }
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
-    fn __next__(&mut self) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
+    fn __next__(
+        &mut self,
+    ) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
         let try_recv = self.rx.recv();
         match try_recv {
-            Ok(work_queue_member) => {
-                match work_queue_member {
-                    WorkQueue::Done => {
-                        IterNextOutput::Return("Home you're finished, 'cause I am...")
-                    },
-                    WorkQueue::Result((mapping, id_num)) => {
-                        let data = self.data.get(&id_num).unwrap().clone();
-                        IterNextOutput::Yield((mapping, data))
-                    }
+            Ok(work_queue_member) => match work_queue_member {
+                WorkQueue::Done => IterNextOutput::Return("Home you're finished, 'cause I am..."),
+                WorkQueue::Result((mapping, id_num)) => {
+                    let data = self.data.get(&id_num).unwrap().clone();
+                    IterNextOutput::Yield((mapping, data))
                 }
-            }
-            Err(RecvError) => {
-                IterNextOutput::Return("Home you're finished, 'cause I am...")
-            }
+            },
+            Err(RecvError) => IterNextOutput::Return("Home you're finished, 'cause I am..."),
         }
     }
 }
@@ -586,59 +607,107 @@ mod tests {
     use super::*;
     use pyo3::Python;
     use std::path::PathBuf;
+
+    fn get_resource_dir() -> PathBuf {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("resources/test");
+        path
+    }
+
+    fn get_test_file(file: &str) -> PathBuf {
+        let mut path = get_resource_dir();
+        path.push(file);
+        path
+    }
+
+    fn get_test_aligner() -> Result<Aligner, PyErr> {
+        let path = get_test_file("test.mmi");
+        Aligner::py_new(
+            Some(path),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            4_usize,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
     #[test]
     fn load_index() {
-        Python::with_gil(|py| {
-            let al = Aligner::py_new(
-                Some(PathBuf::from("test/test.mmi")),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                4_usize,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+        let al = get_test_aligner().unwrap();
+        assert!(al.aligner.has_index());
+    }
+
+    #[test]
+    fn test_property_k() {
+        let al = get_test_aligner().unwrap();
+        assert!(al.k().unwrap() == 15);
+    }
+
+    #[test]
+    fn test_property_w() {
+        let al = get_test_aligner().unwrap();
+        assert!(al.w().unwrap() == 10);
+    }
+
+    #[test]
+    fn test_property_n_seq() {
+        let al = get_test_aligner().unwrap();
+        assert!(al.n_seq().unwrap() == 4);
+    }
+
+    #[test]
+    fn test_property_seq_names() {
+        let al = get_test_aligner().unwrap();
+        let expected = vec![
+            "Bacillus_subtilis",
+            "Enterococcus_faecalis",
+            "Escherichia_coli_1",
+            "Escherichia_coli_2",
+        ];
+        let mut seq_names = al.seq_names().unwrap();
+        seq_names.sort();
+        assert!(seq_names == expected);
+    }
+
+    #[test]
+    fn test_get_seq() {
+        let al = get_test_aligner().unwrap();
+        let contig = "Bacillus_subtilis";
+        let expected = "AGAGTGAAGCCAATATTCCGATAACGATTGCTTTCATGATATCCCTCATTCTGGCATTATTTTTTTATACTATACTATTC\
+                        GATATCGCACAGATCAATGGAGTCGTGAGAAAATAAACATGTTTTGCGAACCGCTATGTGTGGAAGACAAAAAATGGAGG\
+                        TGAAATTGATGGAAGCAAAGACACAGGCGTACTTTTTTCAGGATGATGGCAGGATTCCGAATCACCCTGATTTTCCGCTC\
+                        GTTGTGTATCAAAACGCACTCAAGGACACCGGTCAGGCAGAGCGGATCGTCAACCGGCATGGCTGGTCAAACAGCTGGTC\
+                        GGGGAGTGTTTTTCCATACCATCATTATCACAGCAATACGCATGAAGTCCTGATTGCAGTTCGGGGAGAGGCTGTGATTC";
+        let seq = al
+            .seq(String::from(contig), 0, 2147483647)
+            .unwrap()
             .unwrap();
-            assert!(al.aligner.has_index());
-        });
+        assert!(seq == String::from(expected));
     }
 
     #[test]
     fn map_one() {
-        Python::with_gil(|py| {
-            let al = Aligner::py_new(
-                Some(PathBuf::from("test/test.mmi")),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                4_usize,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-            assert!(al.aligner.has_index());
-            let mappings = al.map(String::from("atCCTACACTGCATAAACTATTTTGcaccataaaaaaaagttatgtgtgGGTCTAAAATAATTTGCTGAGCAATTAATGATTTCTAAATGATGCTAAAGTGAACCATTGTAatgttatatgaaaaataaatacacaattaagATCAACACAGTGAAATAACATTGATTGGGTGATTTCAAATGGGGTCTATctgaataatgttttatttaacagtaatttttatttctatcaatttttagtaatatctacaaatattttgttttaggcTGCCAGAAGATCGGCGGTGCAAGGTCAGAGGTGAGATGTTAGGTGGTTCCACCAACTGCACGGAAGAGCTGCCCTCTGTCATTCAAAATTTGACAGGTACAAACAGactatattaaataagaaaaacaaactttttaaaggCTTGACCATTAGTGAATAGGTTATATGCTTATTATTTCCATTTAGCTTTTTGAGACTAGTATGATTAGACAAATCTGCTTAGttcattttcatataatattgaGGAACAAAATTTGTGAGATTTTGCTAAAATAACTTGCTTTGCTTGTTTATAGAGGCacagtaaatcttttttattattattataattttagattttttaatttttaaat"), None, true, false).unwrap();
-            println!("{mappings:#?}");
-            assert!(mappings.len()==1);
-            assert!(mappings[0].get_target_start().unwrap()==0);
-            assert!(mappings[0].get_target_end().unwrap()==621);
-        });
+        let al = get_test_aligner().unwrap();
+        let mappings = al.map(
+            String::from("AGAGCAGGTAGGATCGTTGAAAAAAGAGTACTCAGGATTCCATTCAACTTTTACTGATTTGAAGCGTACTGTTTATGGCC\
+                          AAGAATATTTACGTCTTTACAACCAATACGCAAAAAAAGGTTCATTGAGTTTGGTTGTGATTTGATGAAAATTACTGAGA\
+                          ATAACAGGATTATTAAGCTGATTGATGAACTAAATCAGCTTAATAAATATTCTTTGCAGATAGGAATATTTGGGGAAAAT\
+                          GATTCTTTTATGGCGATGTTGGCCCAAGTTCATGAATTTGGGGTGACTATTCGTCCCAAAGGTCGTTTTCTTGTTATACC\
+                          ACTTATGAAAAAGTATAGAGGTAAAAGTCCACGTCAATTTGATTTGTTTTTTATGCAAACTAAAGAAAATCACAAGTTTT"),
+            None, true, false).unwrap();
+        println!("{mappings:#?}");
+        assert!(mappings.len() == 1);
+        assert!(mappings[0].get_target_start().unwrap() == 0);
+        assert!(mappings[0].get_target_end().unwrap() == 400);
     }
-
 }
