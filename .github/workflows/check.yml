@@ -83,7 +83,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: hack
-          args: check --lib --tests
+          args: check --lib --tests --no-default-features
   msrv:
     runs-on: ubuntu-latest
     # we use a matrix here just because env can't be used in job names
