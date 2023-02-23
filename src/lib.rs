@@ -607,58 +607,107 @@ mod tests {
     use super::*;
     use pyo3::Python;
     use std::path::PathBuf;
+
+    fn get_resource_dir() -> PathBuf {
+        let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        path.push("resources/test");
+        path
+    }
+
+    fn get_test_file(file: &str) -> PathBuf {
+        let mut path = get_resource_dir();
+        path.push(file);
+        path
+    }
+
+    fn get_test_aligner() -> Result<Aligner, PyErr> {
+        let path = get_test_file("test.mmi");
+        Aligner::py_new(
+            Some(path),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            4_usize,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+    }
+
     #[test]
     fn load_index() {
-        Python::with_gil(|py| {
-            let al = Aligner::py_new(
-                Some(PathBuf::from("test/test.mmi")),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                4_usize,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
+        let al = get_test_aligner().unwrap();
+        assert!(al.aligner.has_index());
+    }
+
+    #[test]
+    fn test_property_k() {
+        let al = get_test_aligner().unwrap();
+        assert!(al.k().unwrap() == 15);
+    }
+
+    #[test]
+    fn test_property_w() {
+        let al = get_test_aligner().unwrap();
+        assert!(al.w().unwrap() == 10);
+    }
+
+    #[test]
+    fn test_property_n_seq() {
+        let al = get_test_aligner().unwrap();
+        assert!(al.n_seq().unwrap() == 4);
+    }
+
+    #[test]
+    fn test_property_seq_names() {
+        let al = get_test_aligner().unwrap();
+        let expected = vec![
+            "Bacillus_subtilis",
+            "Enterococcus_faecalis",
+            "Escherichia_coli_1",
+            "Escherichia_coli_2",
+        ];
+        let mut seq_names = al.seq_names().unwrap();
+        seq_names.sort();
+        assert!(seq_names == expected);
+    }
+
+    #[test]
+    fn test_get_seq() {
+        let al = get_test_aligner().unwrap();
+        let contig = "Bacillus_subtilis";
+        let expected = "AGAGTGAAGCCAATATTCCGATAACGATTGCTTTCATGATATCCCTCATTCTGGCATTATTTTTTTATACTATACTATTC\
+                        GATATCGCACAGATCAATGGAGTCGTGAGAAAATAAACATGTTTTGCGAACCGCTATGTGTGGAAGACAAAAAATGGAGG\
+                        TGAAATTGATGGAAGCAAAGACACAGGCGTACTTTTTTCAGGATGATGGCAGGATTCCGAATCACCCTGATTTTCCGCTC\
+                        GTTGTGTATCAAAACGCACTCAAGGACACCGGTCAGGCAGAGCGGATCGTCAACCGGCATGGCTGGTCAAACAGCTGGTC\
+                        GGGGAGTGTTTTTCCATACCATCATTATCACAGCAATACGCATGAAGTCCTGATTGCAGTTCGGGGAGAGGCTGTGATTC";
+        let seq = al
+            .seq(String::from(contig), 0, 2147483647)
+            .unwrap()
             .unwrap();
-            assert!(al.aligner.has_index());
-        });
+        assert!(seq == String::from(expected));
     }
 
     #[test]
     fn map_one() {
-        Python::with_gil(|py| {
-            let al = Aligner::py_new(
-                Some(PathBuf::from("test/test.mmi")),
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-                4_usize,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-            .unwrap();
-            assert!(al.aligner.has_index());
-            let mappings = al.map(String::from("atCCTACACTGCATAAACTATTTTGcaccataaaaaaaagttatgtgtgGGTCTAAAATAATTTGCTGAGCAATTAATGATTTCTAAATGATGCTAAAGTGAACCATTGTAatgttatatgaaaaataaatacacaattaagATCAACACAGTGAAATAACATTGATTGGGTGATTTCAAATGGGGTCTATctgaataatgttttatttaacagtaatttttatttctatcaatttttagtaatatctacaaatattttgttttaggcTGCCAGAAGATCGGCGGTGCAAGGTCAGAGGTGAGATGTTAGGTGGTTCCACCAACTGCACGGAAGAGCTGCCCTCTGTCATTCAAAATTTGACAGGTACAAACAGactatattaaataagaaaaacaaactttttaaaggCTTGACCATTAGTGAATAGGTTATATGCTTATTATTTCCATTTAGCTTTTTGAGACTAGTATGATTAGACAAATCTGCTTAGttcattttcatataatattgaGGAACAAAATTTGTGAGATTTTGCTAAAATAACTTGCTTTGCTTGTTTATAGAGGCacagtaaatcttttttattattattataattttagattttttaatttttaaat"), None, true, false).unwrap();
-            println!("{mappings:#?}");
-            assert!(mappings.len() == 1);
-            assert!(mappings[0].get_target_start().unwrap() == 0);
-            assert!(mappings[0].get_target_end().unwrap() == 621);
-        });
+        let al = get_test_aligner().unwrap();
+        let mappings = al.map(
+            String::from("AGAGCAGGTAGGATCGTTGAAAAAAGAGTACTCAGGATTCCATTCAACTTTTACTGATTTGAAGCGTACTGTTTATGGCC\
+                          AAGAATATTTACGTCTTTACAACCAATACGCAAAAAAAGGTTCATTGAGTTTGGTTGTGATTTGATGAAAATTACTGAGA\
+                          ATAACAGGATTATTAAGCTGATTGATGAACTAAATCAGCTTAATAAATATTCTTTGCAGATAGGAATATTTGGGGAAAAT\
+                          GATTCTTTTATGGCGATGTTGGCCCAAGTTCATGAATTTGGGGTGACTATTCGTCCCAAAGGTCGTTTTCTTGTTATACC\
+                          ACTTATGAAAAAGTATAGAGGTAAAAGTCCACGTCAATTTGATTTGTTTTTTATGCAAACTAAAGAAAATCACAAGTTTT"),
+            None, true, false).unwrap();
+        println!("{mappings:#?}");
+        assert!(mappings.len() == 1);
+        assert!(mappings[0].get_target_start().unwrap() == 0);
+        assert!(mappings[0].get_target_end().unwrap() == 400);
     }
 }
