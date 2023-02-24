@@ -1,9 +1,12 @@
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
 use fnv::FnvHashMap;
-use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
+use pyo3::exceptions::{
+    PyKeyError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
+};
 use pyo3::prelude::*;
 use pyo3::pyclass::IterNextOutput;
-use pyo3::types::{PyIterator, PyTuple};
+use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
+use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use threadpool::ThreadPool;
@@ -420,7 +423,7 @@ impl Aligner {
     }
 
     /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (channel_number: int, read_id: str)
-    fn map_batch(&self, seqs: &PyIterator) -> PyResult<AlignmentBatchResultIter> {
+    fn map_batch(&self, seqs: &PyAny) -> PyResult<AlignmentBatchResultIter> {
         let mut res = AlignmentBatchResultIter::new();
         // do the heavy work
         self._map_batch(&mut res, seqs)?;
@@ -513,26 +516,53 @@ impl Aligner {
     }
 
     /// Align a batch of reads provided in an iterator.
-    pub fn _map_batch(
-        &self,
-        res: &mut AlignmentBatchResultIter,
-        seqs: &PyIterator,
-    ) -> PyResult<()> {
+    pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyAny) -> PyResult<()> {
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
                 "Multi threading not enabled on this instance. Please call `.enable_threading()`",
             ));
         }
+        let _ = match seqs.extract() {
+            Ok(SupportedTypes::List(_)) => (),
+            Ok(SupportedTypes::Tuple(_)) => (),
+            Ok(SupportedTypes::Iter(_)) => (),
+            Ok(SupportedTypes::Sequence(_)) => (),
+            _ => {
+                return Err(PyTypeError::new_err(
+                    "Unsupported batch type, pass a list, iter, generator or tuple",
+                ))
+            }
+        };
+
+        let iter = match seqs.iter() {
+            Ok(it) => it,
+            _ => return Err(PyTypeError::new_err("Could not iterate batch")),
+        };
+
         let p = ThreadPool::new(self.n_threads);
-        for (id_num, py_dicts) in seqs.iter()?.enumerate() {
+        for (id_num, py_dicts) in iter.enumerate() {
             let py_dict = py_dicts?;
-            let data: HashMap<String, Py<PyAny>> = py_dict.extract()?;
+            let data: HashMap<String, Py<PyAny>> = match py_dict.extract() {
+                Ok(x) => x,
+                _ => {
+                    return Err(PyTypeError::new_err(
+                        "Element in iterable is not a dictionary",
+                    ))
+                }
+            };
             res.data.insert(id_num, data);
             let sendy = res.tx.clone();
-            let seq: String = py_dict
-                .get_item("seq")
-                .expect("AHHH Key 🗝️  not found in iterated dictionary")
-                .extract()?;
+            let seq: String = match py_dict.get_item("seq") {
+                Ok(seq) => match seq.extract() {
+                    Ok(seq) => seq,
+                    _ => return Err(PyValueError::new_err("`seq` must be a string")),
+                },
+                _ => {
+                    return Err(PyKeyError::new_err(
+                        "AHHH Key 🗝️  not found in iterated dictionary",
+                    ))
+                }
+            };
             let aligner = self.clone();
             p.execute(move || {
                 let maps = aligner.map(seq, None, true, true).unwrap();
@@ -548,6 +578,15 @@ impl Aligner {
         res.tx.send(WorkQueue::Done).unwrap();
         Ok(())
     }
+}
+
+/// Python iterable types that are accepted by the `Aligner.map_batch()` function
+#[derive(FromPyObject)]
+enum SupportedTypes<'py> {
+    List(&'py PyList),
+    Tuple(&'py PyTuple),
+    Iter(&'py PyIterator),
+    Sequence(&'py PySequence),
 }
 
 #[pyclass]
@@ -605,7 +644,6 @@ fn mappy_rs(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pyo3::Python;
     use std::path::PathBuf;
 
     fn get_resource_dir() -> PathBuf {

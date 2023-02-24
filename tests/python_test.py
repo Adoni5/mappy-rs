@@ -42,12 +42,17 @@ def al(mmi_file):
 
 
 @pytest.fixture
+def fasta(request):
+    return request.getfixturevalue(request.param)
+
+
+@pytest.fixture
 def fasta_file():
     return str(FA_FILE)
 
 
 @pytest.fixture
-def fasta_iter(fasta_file):
+def fasta_list(fasta_file):
     with open(fasta_file, "rt") as fh:
         seqs = [s for _, s in read_fasta(fh)]
 
@@ -55,7 +60,22 @@ def fasta_iter(fasta_file):
         {"id": i, "seq": seq}
         for i, seq in enumerate(copy.copy(s) for _ in range(10) for s in seqs)
     ]
-    return iter(seqs)
+    return seqs
+
+
+@pytest.fixture
+def fasta_iter(fasta_list):
+    return iter(fasta_list)
+
+
+@pytest.fixture
+def fasta_tuple(fasta_list):
+    return tuple(fasta_list)
+
+
+@pytest.fixture
+def fasta_generator(fasta_list):
+    return (item for item in fasta_list)
 
 
 def test_test(al):
@@ -114,10 +134,64 @@ def test_map_one(al):
     assert mapping.target_end == 400
 
 
-def test_map_batch(al, fasta_iter):
+@pytest.mark.parametrize(
+    "fasta",
+    ["fasta_iter", "fasta_list", "fasta_tuple", "fasta_generator"],
+    indirect=True,
+)
+def test_map_batch(al, fasta):
     al.enable_threading(2)
-    mappings = al.map_batch(fasta_iter)
+    mappings = al.map_batch(fasta)
     n = 0
     for res in mappings:
         n += 1
     assert n == 40
+
+
+def test_map_batch_fail_dict_single(al, fasta_iter):
+    fasta = next(fasta_iter)
+    al.enable_threading(2)
+    with pytest.raises(TypeError) as excinfo:
+        mappings = al.map_batch(fasta)
+    err = str(excinfo)
+    assert "Unsupported batch type, pass a list, iter, generator or tuple" in err
+
+
+def test_map_batch_fail_dict_many(al, fasta_iter):
+    fasta = {i: dct for i, dct in enumerate(fasta_iter)}
+    al.enable_threading(2)
+    with pytest.raises(TypeError) as excinfo:
+        mappings = al.map_batch(fasta)
+    err = str(excinfo)
+    assert "Unsupported batch type, pass a list, iter, generator or tuple" in err
+
+
+def test_map_batch_fail_list_str(al, fasta_iter):
+    fasta = [dct["seq"] for dct in fasta_iter]
+    al.enable_threading(2)
+    with pytest.raises(TypeError) as excinfo:
+        mappings = al.map_batch(fasta)
+    assert "Element in iterable is not a dictionary" in str(excinfo.value)
+
+
+def test_map_batch_fail_no_seq_key(al, fasta_iter):
+    fasta = [{"SEQ": dct["seq"]} for dct in fasta_iter]
+    al.enable_threading(2)
+    with pytest.raises(KeyError) as excinfo:
+        mappings = al.map_batch(fasta)
+    assert "AHHH Key 🗝️  not found in iterated dictionary" in str(excinfo)
+
+
+def test_map_batch_fail_seq_not_str(al, fasta_iter):
+    fasta = [{"seq": dct["seq"].encode()} for dct in fasta_iter]
+    al.enable_threading(2)
+    with pytest.raises(ValueError) as excinfo:
+        mappings = al.map_batch(fasta)
+    assert "`seq` must be a string" in str(excinfo)
+
+
+def test_map_batch_fail_exhausted_iter(al, fasta_iter):
+    _ = list(fasta_iter)
+    al.enable_threading(2)
+    mappings = al.map_batch(fasta_iter)
+    assert len(list(mappings)) == 0
