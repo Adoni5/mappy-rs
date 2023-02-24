@@ -120,7 +120,7 @@ impl Mapping {
         format!("{self:#?}")
     }
 
-    /// Implement the string representation in python. 
+    /// Implement the string representation in python.
     fn __str__(&self) -> String {
         format!("{self}")
     }
@@ -436,7 +436,7 @@ impl Aligner {
     }
 
     ///  Enable multi threading on this mappy instance.
-    /// 
+    ///
     /// Example
     /// -------
     /// ```aligner::enable_threading(8)```
@@ -545,7 +545,7 @@ impl Aligner {
         Ok(std::string::String::from_utf8(seq_buf).unwrap())
     }
 
-    /// Align a batch of reads provided in an iterator, using a threadpool with the number of threads specified by 
+    /// Align a batch of reads provided in an iterator, using a threadpool with the number of threads specified by
     /// .enable_threading()
     pub fn _map_batch(
         &self,
