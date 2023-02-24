@@ -12,22 +12,26 @@ Heavily leaning on and inspired by Joeseph Guhlin's minimap2-rs [repository](htt
 ## Developers
 Start with some Docs on Py03 - https://pyo3.rs/latest/
 
-In order to build an importable module - 
-
-```
-python -m venv .env
-source -m .env/bin/activate
-pip install maturin
-maturin develop
-```
-
-_NB to run PyO3 `maturin develop` with conda, it is necessary to add your python shared library location to the LD_LIBRARY_PATH._
+In order to build an importable module:
 
 ```bash
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$(realpath $(which python)/../../lib)
+python -m venv .env
+source -m .env/bin/activate
+pip install ".[tests]"
 ```
 
-Then in your python shell of choice - 
+
+To run the tests:
+
+```bash
+# Python
+pytest
+
+# Rust
+cargo t --no-default-features
+```
+
+Then in your python shell of choice:
 
 ```python
 import mappy_rs
@@ -41,7 +45,7 @@ In order to use multi threading, one must first enable it.
 
 ```python
 import mappy_rs
-aligner = mappy_rs.Aligner("resources/test/test.mmi")
+aligner = mappy_rs.Aligner("/path/to/index.mmi")
 # Use 10 threads
 aligner.enable_threading(10)
 ```
