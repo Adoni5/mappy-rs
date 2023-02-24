@@ -24,5 +24,13 @@ maintainers = [
 homepage = "https://github.com/adoni5/mappy-rs"
 keywords = ["alignment", "bioinformatics", "python", "rust", "minimap2"]
 
+[project.optional-dependencies]
+tests = ["pytest"]
+
 [tool.maturin]
 features = ["pyo3/extension-module"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra"
+testpaths = ["tests"]

@@ -8,20 +8,27 @@ A multi-threaded minimap2 aligner for python.
 ## Developers
 Start with some Docs on Py03 - https://pyo3.rs/latest/
 
-In order to build an importable module - 
+In order to build an importable module:
 
-```
+```bash
 python -m venv .env
 source -m .env/bin/activate
-pip install maturin
-maturin develop
+pip install ".[tests]"
 ```
 
-_NB Any conda environments cannot be activate to run maturin develop, so make sure you `conda deactivate` beforehand_
+To run the tests:
 
-Then in your python shell of choice - 
+```bash
+# Python
+pytest
+
+# Rust
+cargo t --no-default-features
+```
+
+Then in your python shell of choice:
 
 ```python
 import mappy_rs
-aligner = mappy_rs.Aligner(1)
+aligner = mappy_rs.Aligner("/path/to/index.mmi")
 ```
