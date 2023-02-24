@@ -42,28 +42,30 @@ aligner = mappy_rs.Aligner("resources/test/test.mmi")
 
 The current iteration of `mappy-rs` serves as a drop in for `mappy`, implementing all the same methods. However if this is the use case, you may well be better off using `mappy`, as the extra level of Rust betwene your python and C++ may well add slighly slower performance.
 
-#### Multithreading
+### Multithreading
 In order to use multi threading, one must first enable it.
 
 ```python
 import mappy_rs
-aligner = mappy_rs.Aligner("/path/to/index.mmi")
+aligner = mappy_rs.Aligner("resources/test/test.mmi")
 # Use 10 threads
 aligner.enable_threading(10)
 ```
 
-Enabling threading makes the `map_batch` method available. ⚠️ _Currently, this only takes an iterator of dictionaries. The dictionaries can have any number of keys and depth, but __must__ contain one key value pair of "seq": "sequence"_.
+Enabling threading makes the `map_batch` method available.  
+This method requires a list or iterable of dictionaries, which can have any number of keys and depth, but **must** contain the key `seq` with a string value in the top-level dictionary.
 
-For example
+For example:
 
 ```python
 import mappy_rs
 aligner = mappy_rs.Aligner("resources/test/test.mmi")
 aligner.enable_threading(10)
-for (mapping, data) in aligner.map_batch(iter([{"seq": "ACGTAGCATCGAGACTACGA", "Other_random_key": "banter"}, {"seq": "ACGTAGCATCGAGACTACGA", "Other_random_key": "banter"}])):
+seqs = [
+    {"seq": "ACGTAGCATCGAGACTACGA", "Other_random_key": "banter"}, 
+    {"seq": "ACGTAGCATCGAGACTACGA", "Other_random_key": "banter"},
+]
+for (mapping, data) in aligner.map_batch(seqs):
     print(list(mapping))
     print(data)
 ```
-
-Will work, but without the call to `iter()` it would crash.
-
