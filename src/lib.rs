@@ -119,25 +119,25 @@ pub struct Mapping {
     /// Match length of the alignment
     #[pyo3(get)]
     pub match_len: i32,
-    /// Block length og the alignment (includes gaps)
+    /// Block length of the alignment (includes gaps)
     #[pyo3(get)]
     pub block_len: i32,
-    /// Alignment quality between 0-60
+    /// Alignment quality between 0-255, with 255 for missing.
     #[pyo3(get)]
     pub mapq: u32,
     /// Alignment is primary or not
     #[pyo3(get)]
     pub is_primary: bool,
-    /// The cigar string of the alignment
+    /// The CIGAR operations/numbers of the alignment
     #[pyo3(get)]
     pub cigar: Vec<(u32, u8)>,
-    /// No idea
+    /// Total number of matchs, mismatches and gaps in the alignment
     #[pyo3(get)]
     pub NM: i32,
     /// MD string og the alignment
     #[pyo3(get)]
     pub MD: Option<String>,
-    /// Cigar string
+    /// CIGAR string
     #[pyo3(get)]
     pub cs: Option<String>,
 }
