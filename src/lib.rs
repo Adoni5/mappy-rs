@@ -497,7 +497,7 @@ impl Aligner {
     ///
     /// Example
     /// -------
-    /// ```aligner::enable_threading(8)```
+    /// `aligner::enable_threading(8)`
     #[pyo3(signature = (n_threads), text_signature = "(n_threads=8)")]
     fn enable_threading(&mut self, n_threads: usize) -> PyResult<()> {
         self.n_threads = n_threads;
@@ -672,9 +672,13 @@ impl Aligner {
 /// Python iterable types that are accepted by the `Aligner.map_batch()` function
 #[derive(FromPyObject)]
 enum SupportedTypes<'py> {
+    /// PyList wrapper
     List(&'py PyList),
+    /// PyTuple wrapper
     Tuple(&'py PyTuple),
+    /// PyIter wrapper
     Iter(&'py PyIterator),
+    /// PySequence wrapper
     Sequence(&'py PySequence),
 }
 
