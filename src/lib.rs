@@ -134,7 +134,7 @@ pub struct Mapping {
     /// Total number of matchs, mismatches and gaps in the alignment
     #[pyo3(get)]
     pub NM: i32,
-    /// MD string og the alignment
+    /// MD string of the alignment
     #[pyo3(get)]
     pub MD: Option<String>,
     /// CIGAR string
