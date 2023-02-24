@@ -1,3 +1,9 @@
+//! A multithreaded minimap2 mappy clone in rust.
+//! Serves as a drop in for mappy in single threaded mode.
+//! Designed for use with readfish https://github.com/LooseLab/readfish/.
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
 use fnv::FnvHashMap;
 use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyValueError};
@@ -12,14 +18,18 @@ use threadpool::ThreadPool;
 #[pyclass]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Strand {
+    /// Maps to the forward strand
     Forward,
+    /// Maps to the Reverse strand
     Reverse,
 }
 
 /// Enum containing results from multithreaded Alignment
 #[derive(Debug)]
 enum WorkQueue<T> {
+    /// The threads are finished
     Done,
+    /// Result of multi threaded mapping queue
     Result(T),
 }
 
@@ -86,33 +96,48 @@ impl Strand {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(non_snake_case)]
 pub struct Mapping {
+    /// Mapping start on the query DNA sequence
     #[pyo3(get)]
     pub query_start: i32,
+    /// Mapping end on the query DNA sequence
     #[pyo3(get)]
     pub query_end: i32,
+    /// DNA strand the mapping is on (Forward or reverse)
     pub strand: Strand,
+    /// The name of the chromosome/contig mapped to
     #[pyo3(get)]
     pub target_name: String,
+    /// Length of the target contig mapped to
     #[pyo3(get)]
     pub target_len: i32,
+    /// Mapping start on the contig mapped to
     #[pyo3(get)]
     pub target_start: i32,
+    /// Mapping end on the contig mapped to
     #[pyo3(get)]
     pub target_end: i32,
+    /// Match length of the alignment
     #[pyo3(get)]
     pub match_len: i32,
+    /// Block length og the alignment (includes gaps)
     #[pyo3(get)]
     pub block_len: i32,
+    /// Alignment quality between 0-60
     #[pyo3(get)]
     pub mapq: u32,
+    /// Alignment is primary or not
     #[pyo3(get)]
     pub is_primary: bool,
+    /// The cigar string of the alignment
     #[pyo3(get)]
     pub cigar: Vec<(u32, u8)>,
+    /// No idea
     #[pyo3(get)]
     pub NM: i32,
+    /// MD string og the alignment
     #[pyo3(get)]
     pub MD: Option<String>,
+    /// Cigar string
     #[pyo3(get)]
     pub cs: Option<String>,
 }
@@ -265,7 +290,7 @@ impl Aligner {
     /// Aligner struct, mimicking minimap2's python interface
     #[new]
     #[pyo3(signature = (fn_idx_in=None, preset=None, k=None, w=None, min_cnt=None, min_chain_score=None, min_dp_score=None, bw=None, best_n=None, n_threads=3, fn_idx_out=None, max_frag_len=None, extra_flags=None, seq=None, scoring=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, unused_assignments)]
     fn py_new(
         fn_idx_in: Option<std::path::PathBuf>,
         preset: Option<String>,
@@ -652,6 +677,7 @@ impl AlignmentBatchResultIter {
     }
 
     /// Returns the next element in the Iterator.
+    #[allow(clippy::type_complexity)]
     fn __next__(
         &mut self,
     ) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
@@ -669,6 +695,7 @@ impl AlignmentBatchResultIter {
     }
 }
 
+/// Initialise the python module and add the Aligner class.
 #[pymodule]
 fn mappy_rs(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<Aligner>()?;
@@ -678,7 +705,6 @@ fn mappy_rs(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pyo3::Python;
     use std::path::PathBuf;
 
     fn get_resource_dir() -> PathBuf {
@@ -765,7 +791,7 @@ mod tests {
             .seq(String::from(contig), 0, 2147483647)
             .unwrap()
             .unwrap();
-        assert!(seq == String::from(expected));
+        assert!(seq == *expected);
     }
 
     #[test]
