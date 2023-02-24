@@ -23,7 +23,7 @@ enum WorkQueue<T> {
     Result(T),
 }
 
-// Implement `Display` for `Strand`.
+/// Implement `Display` for `Strand`.
 impl Display for Strand {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let strand_string = match self {
@@ -43,7 +43,7 @@ impl Strand {
 }
 
 impl Strand {
-    /// Conver the minimap2 crate strand to the strand enum found in our crate.
+    /// Convert the minimap2 crate strand to the strand enum found in our crate.
     fn from_mm2_strand(strand: minimap2::Strand) -> Strand {
         match strand {
             minimap2::Strand::Forward => Strand::Forward,
@@ -53,6 +53,35 @@ impl Strand {
 }
 
 /// Result of an alignment.
+/// Attributes can be accessed using the `minimap2/mappy` attribute names, or
+/// longer form methods.
+///
+/// # Examples
+///
+/// ```
+///     use mappy_rs::{Mapping, Strand}
+///     let m = Mapping {
+///         query_start: 32,
+///         query_end: 33,
+///         strand: Strand::Forward,
+///         target_name: "Shakr_bait",
+///         target_len: 10,
+///         target_start: 10,
+///         target_end: 11,
+///         match_len: 10,
+///         block_len: 10,
+///         mapq: 69,
+///         is_primrary: true,
+///         cigar: vec![(10, 11)],
+///         NM: 10,
+///         None,
+///         None
+///     }
+///     // valid
+///     m.target_start // also gets the mapping start
+/// ```
+///
+/// In python this can be referenced as mapping.r_st or mapping.target_start.
 #[pyclass]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(non_snake_case)]
@@ -89,6 +118,8 @@ pub struct Mapping {
 }
 
 /// Implement `Display` for `Mapping`. Writes out a paf formatted Mapping result.
+/// NB. As the paf record spec describes, this will not include the `query name` and `query length`
+/// fields.
 impl Display for Mapping {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let tp = if self.is_primary { "tp:A:P" } else { "tp:A:S" };
@@ -125,42 +156,42 @@ impl Mapping {
         format!("{self}")
     }
 
-    /// Get the target name from a `Mapping`
+    /// Get the target name from a `Mapping`. Alias for `mappy.Alignment.ctg`
     #[getter(ctg)]
     fn get_target_name(&self) -> PyResult<String> {
         Ok(self.target_name.clone())
     }
-    /// Get the target contig length from a `Mapping`
+    /// Get the target contig length from a `Mapping`. Alias for `mappy.Alignment.ctg_len`
     #[getter(ctg_len)]
     fn get_target_len(&self) -> PyResult<i32> {
         Ok(self.target_len)
     }
 
-    /// Get the mapping start on the reference from a `Mapping`
+    /// Get the mapping start on the reference from a `Mapping`. Alias for `mappy.Alignment.r_st`
     #[getter(r_st)]
     fn get_target_start(&self) -> PyResult<i32> {
         Ok(self.target_start)
     }
 
-    /// Get the mapping end on the reference from a `Mapping`
+    /// Get the mapping end on the reference from a `Mapping`. Alias for `mappy.Alignment.r_en`
     #[getter(r_en)]
     fn get_target_end(&self) -> PyResult<i32> {
         Ok(self.target_end)
     }
 
-    /// Get the mapping start on the query sequence from a `Mapping`
+    /// Get the mapping start on the query sequence from a `Mapping`. Alias for `mappy.Alignment.q_st`
     #[getter(q_st)]
     fn get_query_start(&self) -> PyResult<i32> {
         Ok(self.query_start)
     }
 
-    /// Get the mapping end on the query sequence from a `Mapping`
+    /// Get the mapping end on the query sequence from a `Mapping`. Alias for `mappy.Alignment.q_en`
     #[getter(q_en)]
     fn get_query_end(&self) -> PyResult<i32> {
         Ok(self.query_end)
     }
 
-    /// Get the strand from a `Mapping`
+    /// Get the strand from a `Mapping`. Alias for `mappy.Alignment.strand`
     #[getter(strand)]
     fn get_strand(&self) -> PyResult<i32> {
         Ok(match self.strand {
@@ -169,19 +200,19 @@ impl Mapping {
         })
     }
 
-    /// Get the alignment block length from a `Mapping`
+    /// Get the alignment block length from a `Mapping`. Alias for `mappy.Alignment.blen`
     #[getter(blen)]
     fn get_block_len(&self) -> PyResult<i32> {
         Ok(self.block_len)
     }
 
-    /// Get the match length from a `Mapping`
+    /// Get the match length from a `Mapping`. Alias for `mappy.Aignment.mlen`
     #[getter(mlen)]
     fn get_match_len(&self) -> PyResult<i32> {
         Ok(self.match_len)
     }
 
-    /// Get the cigar string from a `Mapping`
+    /// Get the cigar string from a `Mapping`. Alias for `mappy.Alignment.cigar_str`
     #[getter(cigar_str)]
     fn get_cigar_str(&self) -> PyResult<String> {
         let strs = self
@@ -210,7 +241,7 @@ impl Mapping {
         }
     }
 
-    /// Return whether this `Mapping` is a primary mapping.
+    /// Return whether this `Mapping` is a primary mapping. Alias for `mappy.Alignment.is_primary`
     #[getter(is_primary)]
     fn get_is_primary(&self) -> PyResult<bool> {
         Ok(self.is_primary)
@@ -356,8 +387,7 @@ impl Aligner {
         Err(PyRuntimeError::new_err("Did not create or open an index"))
     }
 
-    /// Initialise a new Py Class Aligner
-    /// Aligner struct, mimicking minimap2's python interface
+    /// Return the sequence names contained within an index as a list.
     #[getter]
     fn seq_names(&self) -> PyResult<Vec<String>> {
         if !self.aligner.has_index() {

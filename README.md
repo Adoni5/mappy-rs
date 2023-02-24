@@ -46,7 +46,7 @@ aligner = mappy_rs.Aligner("resources/test/test.mmi")
 aligner.enable_threading(10)
 ```
 
-Eanbling threading makes the `map_batch` method available. ⚠️ _Currently, this only takes an iterator of dictionaries. The dictionaries can have any number of keys and depth, but __must__ contain one key value pair of "seq": "sequence"_.
+Enabling threading makes the `map_batch` method available. ⚠️ _Currently, this only takes an iterator of dictionaries. The dictionaries can have any number of keys and depth, but __must__ contain one key value pair of "seq": "sequence"_.
 
 For example
 
