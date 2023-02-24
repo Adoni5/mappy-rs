@@ -42,7 +42,7 @@ aligner = mappy_rs.Aligner("resources/test/test.mmi")
 
 The current iteration of `mappy-rs` serves as a drop in for `mappy`, implementing all the same methods. However if this is the use case, you may well be better off using `mappy`, as the extra level of Rust betwene your python and C++ may well add slighly slower performance.
 
-#### Multithreading
+### Multithreading
 In order to use multi threading, one must first enable it.
 
 ```python
