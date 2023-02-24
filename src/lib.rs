@@ -1,3 +1,9 @@
+//! A multithreaded minimap2 mappy clone in rust.
+//! Serves as a drop in for mappy in single threaded mode.
+//! Designed for use with readfish https://github.com/LooseLab/readfish/.
+#![deny(missing_docs)]
+#![deny(clippy::missing_docs_in_private_items)]
+
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
 use fnv::FnvHashMap;
 use pyo3::exceptions::{
@@ -15,16 +21,22 @@ use threadpool::ThreadPool;
 #[pyclass]
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 pub enum Strand {
+    /// Maps to the forward strand
     Forward,
+    /// Maps to the Reverse strand
     Reverse,
 }
 
+/// Enum containing results from multithreaded Alignment
 #[derive(Debug)]
 enum WorkQueue<T> {
+    /// The threads are finished
     Done,
+    /// Result of multi threaded mapping queue
     Result(T),
 }
 
+/// Implement `Display` for `Strand`.
 impl Display for Strand {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let strand_string = match self {
@@ -37,12 +49,14 @@ impl Display for Strand {
 
 #[pymethods]
 impl Strand {
+    /// String representation of the strand
     fn __str__(&self) -> String {
         format!("{}", &self)
     }
 }
 
 impl Strand {
+    /// Convert the minimap2 crate strand to the strand enum found in our crate.
     fn from_mm2_strand(strand: minimap2::Strand) -> Strand {
         match strand {
             minimap2::Strand::Forward => Strand::Forward,
@@ -51,42 +65,89 @@ impl Strand {
     }
 }
 
-/// Mapping result
+/// Result of an alignment.
+/// Attributes can be accessed using the `minimap2/mappy` attribute names, or
+/// longer form methods.
+///
+/// # Examples
+///
+/// ```
+///     use mappy_rs::{Mapping, Strand};
+///     let m = Mapping {
+///         query_start: 32,
+///         query_end: 33,
+///         strand: Strand::Forward,
+///         target_name: String::from("Shark_bait"),
+///         target_len: 10,
+///         target_start: 10,
+///         target_end: 11,
+///         match_len: 10,
+///         block_len: 10,
+///         mapq: 69,
+///         is_primary: true,
+///         cigar: vec![(10, 11)],
+///         NM: 10,
+///         MD: None,
+///         cs: None
+///     };
+///     // valid
+///     assert!(m.target_start == 10); // also gets the mapping start
+/// ```
+///
+/// In python this can be referenced as mapping.r_st or mapping.target_start.
 #[pyclass]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[allow(non_snake_case)]
 pub struct Mapping {
+    /// Mapping start on the query DNA sequence
     #[pyo3(get)]
     pub query_start: i32,
+    /// Mapping end on the query DNA sequence
     #[pyo3(get)]
     pub query_end: i32,
+    /// DNA strand the mapping is on (Forward or reverse)
     pub strand: Strand,
+    /// The name of the chromosome/contig mapped to
     #[pyo3(get)]
     pub target_name: String,
+    /// Length of the target contig mapped to
     #[pyo3(get)]
     pub target_len: i32,
+    /// Mapping start on the contig mapped to
     #[pyo3(get)]
     pub target_start: i32,
+    /// Mapping end on the contig mapped to
     #[pyo3(get)]
     pub target_end: i32,
+    /// Match length of the alignment
     #[pyo3(get)]
     pub match_len: i32,
+    /// Block length of the alignment (includes gaps)
     #[pyo3(get)]
     pub block_len: i32,
+    /// Alignment quality between 0-255, with 255 for missing.
     #[pyo3(get)]
     pub mapq: u32,
+    /// Alignment is primary or not
     #[pyo3(get)]
     pub is_primary: bool,
+    /// The CIGAR operations/numbers of the alignment
     #[pyo3(get)]
     pub cigar: Vec<(u32, u8)>,
+    /// Total number of matchs, mismatches and gaps in the alignment
     #[pyo3(get)]
     pub NM: i32,
+    /// MD string of the alignment
     #[pyo3(get)]
     pub MD: Option<String>,
+    /// CIGAR string
     #[pyo3(get)]
     pub cs: Option<String>,
 }
 
+/// Implement `Display` for `Mapping`. Writes out a paf formatted Mapping result.
+/// NB. As the paf record spec describes, this will not include the `query name` and `query length`
+/// fields.
 impl Display for Mapping {
     fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         let tp = if self.is_primary { "tp:A:P" } else { "tp:A:S" };
@@ -110,45 +171,55 @@ impl Display for Mapping {
     }
 }
 
+/// Selection of python methods for an Alignment Mapping.
 #[pymethods]
 impl Mapping {
+    /// Implement the python `repr()` method.
     fn __repr__(&self) -> String {
         format!("{self:#?}")
     }
 
+    /// Implement the string representation in python.
     fn __str__(&self) -> String {
         format!("{self}")
     }
+
+    /// Get the target name from a `Mapping`. Alias for `mappy.Alignment.ctg`
     #[getter(ctg)]
     fn get_target_name(&self) -> PyResult<String> {
         Ok(self.target_name.clone())
     }
-
+    /// Get the target contig length from a `Mapping`. Alias for `mappy.Alignment.ctg_len`
     #[getter(ctg_len)]
     fn get_target_len(&self) -> PyResult<i32> {
         Ok(self.target_len)
     }
 
+    /// Get the mapping start on the reference from a `Mapping`. Alias for `mappy.Alignment.r_st`
     #[getter(r_st)]
     fn get_target_start(&self) -> PyResult<i32> {
         Ok(self.target_start)
     }
 
+    /// Get the mapping end on the reference from a `Mapping`. Alias for `mappy.Alignment.r_en`
     #[getter(r_en)]
     fn get_target_end(&self) -> PyResult<i32> {
         Ok(self.target_end)
     }
 
+    /// Get the mapping start on the query sequence from a `Mapping`. Alias for `mappy.Alignment.q_st`
     #[getter(q_st)]
     fn get_query_start(&self) -> PyResult<i32> {
         Ok(self.query_start)
     }
 
+    /// Get the mapping end on the query sequence from a `Mapping`. Alias for `mappy.Alignment.q_en`
     #[getter(q_en)]
     fn get_query_end(&self) -> PyResult<i32> {
         Ok(self.query_end)
     }
 
+    /// Get the strand from a `Mapping`. Alias for `mappy.Alignment.strand`
     #[getter(strand)]
     fn get_strand(&self) -> PyResult<i32> {
         Ok(match self.strand {
@@ -157,16 +228,19 @@ impl Mapping {
         })
     }
 
+    /// Get the alignment block length from a `Mapping`. Alias for `mappy.Alignment.blen`
     #[getter(blen)]
     fn get_block_len(&self) -> PyResult<i32> {
         Ok(self.block_len)
     }
 
+    /// Get the match length from a `Mapping`. Alias for `mappy.Aignment.mlen`
     #[getter(mlen)]
     fn get_match_len(&self) -> PyResult<i32> {
         Ok(self.match_len)
     }
 
+    /// Get the cigar string from a `Mapping`. Alias for `mappy.Alignment.cigar_str`
     #[getter(cigar_str)]
     fn get_cigar_str(&self) -> PyResult<String> {
         let strs = self
@@ -195,6 +269,7 @@ impl Mapping {
         }
     }
 
+    /// Return whether this `Mapping` is a primary mapping. Alias for `mappy.Alignment.is_primary`
     #[getter(is_primary)]
     fn get_is_primary(&self) -> PyResult<bool> {
         Ok(self.is_primary)
@@ -214,9 +289,11 @@ unsafe impl Send for Aligner {}
 
 #[pymethods]
 impl Aligner {
+    /// Initialise a new Py Class Aligner
+    /// Aligner struct, mimicking minimap2's python interface
     #[new]
     #[pyo3(signature = (fn_idx_in=None, preset=None, k=None, w=None, min_cnt=None, min_chain_score=None, min_dp_score=None, bw=None, best_n=None, n_threads=3, fn_idx_out=None, max_frag_len=None, extra_flags=None, seq=None, scoring=None))]
-    #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments, unused_assignments)]
     fn py_new(
         fn_idx_in: Option<std::path::PathBuf>,
         preset: Option<String>,
@@ -338,6 +415,7 @@ impl Aligner {
         Err(PyRuntimeError::new_err("Did not create or open an index"))
     }
 
+    /// Return the sequence names contained within an index as a list.
     #[getter]
     fn seq_names(&self) -> PyResult<Vec<String>> {
         if !self.aligner.has_index() {
@@ -416,6 +494,10 @@ impl Aligner {
     }
 
     ///  Enable multi threading on this mappy instance.
+    ///
+    /// Example
+    /// -------
+    /// ```aligner::enable_threading(8)```
     #[pyo3(signature = (n_threads), text_signature = "(n_threads=8)")]
     fn enable_threading(&mut self, n_threads: usize) -> PyResult<()> {
         self.n_threads = n_threads;
@@ -432,20 +514,24 @@ impl Aligner {
         Ok(res)
     }
 
+    /// Return whether or not this Aligner has an index.
     fn __bool__(&self) -> PyResult<bool> {
         Ok(self.aligner.idx.is_some())
     }
 
+    /// Get the k value from the index.
     #[getter]
     fn k(&self) -> PyResult<i32> {
         Ok(self.aligner.idx.unwrap().k)
     }
 
+    /// Get the w value form the index.
     #[getter]
     fn w(&self) -> PyResult<i32> {
         Ok(self.aligner.idx.unwrap().w)
     }
 
+    /// Get the number of sequences present in the index
     #[getter]
     fn n_seq(&self) -> PyResult<u32> {
         Ok(self.aligner.idx.unwrap().n_seq)
@@ -453,6 +539,8 @@ impl Aligner {
 }
 
 impl Aligner {
+    /// Private function
+    /// Get a sequence or subsequence of a contig loaded into the index.
     pub fn _get_index_seq(&self, name: String, start: i32, mut end: i32) -> Result<String, &str> {
         if !self.aligner.has_index() {
             return Err("No index");
@@ -515,7 +603,8 @@ impl Aligner {
         Ok(std::string::String::from_utf8(seq_buf).unwrap())
     }
 
-    /// Align a batch of reads provided in an iterator.
+    /// Align a batch of reads provided in an iterator, using a threadpool with the number of threads specified by
+    /// .enable_threading()
     pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyAny) -> PyResult<()> {
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
@@ -589,14 +678,19 @@ enum SupportedTypes<'py> {
     Sequence(&'py PySequence),
 }
 
+/// Struct for returning data to the python runtime as an iterabled.
 #[pyclass]
 pub struct AlignmentBatchResultIter {
+    /// Sender of results into this scope
     tx: Sender<WorkQueue<(Vec<Mapping>, usize)>>,
+    /// Receive the sent data
     rx: Receiver<WorkQueue<(Vec<Mapping>, usize)>>,
+    /// HashMap for caching sent data
     data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>,
 }
 
 impl Default for AlignmentBatchResultIter {
+    /// Impl default for the `AlignmentBatchResultIter.`
     fn default() -> Self {
         Self::new()
     }
@@ -605,6 +699,7 @@ impl Default for AlignmentBatchResultIter {
 /// Iterator for the batch results from a multi threaded call to mapper
 #[pymethods]
 impl AlignmentBatchResultIter {
+    /// Initialise a new `AlignmentBatchResultIter`. Spawns the Send And Receive channels.
     #[new]
     pub fn new() -> Self {
         let (tx, rx) = bounded(4000);
@@ -614,10 +709,14 @@ impl AlignmentBatchResultIter {
             data: FnvHashMap::default(),
         }
     }
+
+    /// Returns the Iterable, in this case the struct itself.
     fn __iter__(slf: PyRef<'_, Self>) -> PyRef<'_, Self> {
         slf
     }
 
+    /// Returns the next element in the Iterator.
+    #[allow(clippy::type_complexity)]
     fn __next__(
         &mut self,
     ) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
@@ -635,6 +734,7 @@ impl AlignmentBatchResultIter {
     }
 }
 
+/// Initialise the python module and add the Aligner class.
 #[pymodule]
 fn mappy_rs(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
     m.add_class::<Aligner>()?;
@@ -730,7 +830,7 @@ mod tests {
             .seq(String::from(contig), 0, 2147483647)
             .unwrap()
             .unwrap();
-        assert!(seq == String::from(expected));
+        assert!(seq == *expected);
     }
 
     #[test]
