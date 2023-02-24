@@ -69,26 +69,26 @@ impl Strand {
 /// # Examples
 ///
 /// ```
-///     use mappy_rs::{Mapping, Strand}
+///     use mappy_rs::{Mapping, Strand};
 ///     let m = Mapping {
 ///         query_start: 32,
 ///         query_end: 33,
 ///         strand: Strand::Forward,
-///         target_name: "Shakr_bait",
+///         target_name: String::from("Shark_bait"),
 ///         target_len: 10,
 ///         target_start: 10,
 ///         target_end: 11,
 ///         match_len: 10,
 ///         block_len: 10,
 ///         mapq: 69,
-///         is_primrary: true,
+///         is_primary: true,
 ///         cigar: vec![(10, 11)],
 ///         NM: 10,
-///         None,
-///         None
-///     }
+///         MD: None,
+///         cs: None
+///     };
 ///     // valid
-///     m.target_start // also gets the mapping start
+///     assert!(m.target_start == 10); // also gets the mapping start
 /// ```
 ///
 /// In python this can be referenced as mapping.r_st or mapping.target_start.
