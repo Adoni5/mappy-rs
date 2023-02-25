@@ -4,6 +4,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron:  '0 0 * * SUN'
 name: check
 jobs:
   fmt:
