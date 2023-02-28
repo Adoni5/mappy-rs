@@ -1,6 +1,6 @@
 //! A multithreaded minimap2 mappy clone in rust.
 //! Serves as a drop in for mappy in single threaded mode.
-//! Designed for use with readfish https://github.com/LooseLab/readfish/.
+//! Designed for use with readfish https://github.com/LooseLab/readfish/
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
 
@@ -482,7 +482,7 @@ impl Aligner {
                         block_len: m.block_len,                    // i32,
                         mapq: m.mapq,                              // u32,
                         is_primary: m.is_primary,                  // bool
-                        cigar: a.cigar.unwrap_or(vec![]),          // Vec<(u32, u8)>
+                        cigar: a.cigar.unwrap_or_default(),        // Vec<(u32, u8)>
                         NM: a.nm,
                         MD: a.md,
                         cs: a.cs,
@@ -611,7 +611,7 @@ impl Aligner {
                 "Multi threading not enabled on this instance. Please call `.enable_threading()`",
             ));
         }
-        let _ = match seqs.extract() {
+        match seqs.extract() {
             Ok(SupportedTypes::List(_)) => (),
             Ok(SupportedTypes::Tuple(_)) => (),
             Ok(SupportedTypes::Iter(_)) => (),

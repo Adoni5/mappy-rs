@@ -26,6 +26,7 @@ keywords = ["alignment", "bioinformatics", "python", "rust", "minimap2"]
 
 [project.optional-dependencies]
 tests = ["pytest"]
+dev = ["mappy-rs[tests]", "pre-commit"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
