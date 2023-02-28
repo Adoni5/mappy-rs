@@ -1,4 +1,3 @@
-# Taken from https://github.com/jonhoo/rust-ci-conf/blob/main/.github/workflows/check.yml
 on:
   push:
     branches: [main]
@@ -17,93 +16,27 @@ jobs:
       - uses: "actions/setup-python@v4"
       - uses: "dtolnay/rust-toolchain@stable"
       - uses: "pre-commit/action@v3.0.0"
-  # fmt:
-  #   runs-on: ubuntu-latest
-  #   name: stable / fmt
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: true
-  #     - name: Install stable
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: stable
-  #         components: rustfmt
-  #     - name: cargo fmt --check
-  #       uses: actions-rs/cargo@v1
-  #       with:
-  #         command: fmt
-  #         args: --check
-  # clippy:
-  #   runs-on: ubuntu-latest
-  #   name: ${{ matrix.toolchain }} / clippy
-  #   strategy:
-  #     fail-fast: false
-  #     matrix:
-  #       toolchain: [stable, beta]
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: true
-  #     - name: Install ${{ matrix.toolchain }}
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: ${{ matrix.toolchain }}
-  #         default: true
-  #         components: clippy
-  #     - name: cargo clippy
-  #       uses: actions-rs/clippy-check@v1
-  #       with:
-  #         token: ${{ secrets.GITHUB_TOKEN }}
-  # doc:
-  #   runs-on: ubuntu-latest
-  #   name: nightly / doc
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: true
-  #     - name: Install nightly
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: nightly
-  #         default: true
-  #     - name: cargo doc
-  #       uses: actions-rs/cargo@v1
-  #       with:
-  #         command: doc
-  #         args: --no-deps --all-features
-  #       env:
-  #         RUSTDOCFLAGS: --cfg docsrs
-  # hack:
-  #   runs-on: ubuntu-latest
-  #   name: ubuntu / stable / features
-  #   steps:
-  #     - uses: actions/checkout@v3
-  #       with:
-  #         submodules: true
-  #     - name: Install stable
-  #       uses: actions-rs/toolchain@v1
-  #       with:
-  #         profile: minimal
-  #         toolchain: stable
-  #     - name: cargo install cargo-hack
-  #       uses: taiki-e/install-action@cargo-hack
-  #     - name: cargo hack
-  #       uses: actions-rs/cargo@v1
-  #       with:
-  #         command: hack
-  #         args: check --lib --tests --no-default-features
-  #     - name: cargo test
-  #       uses: actions-rs/cargo@v1
-  #       with:
-  #         command: hack
+
+  clippy:
+    runs-on: ubuntu-latest
+    name: ${{ matrix.toolchain }} / clippy
+    needs: pre-commit
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [stable, beta, nightly]
+    steps:
+      - uses: actions/checkout@v3
+      - uses: "dtolnay/rust-toolchain@master"
+        with:
+          toolchain: ${{ matrix.toolchain }}
+      - name: "clippy ${{ matrix.toolchain }}"
+        run: cargo clippy
+
   cargo-test:
     name: cargo test
     runs-on: ubuntu-latest
-    needs: pre-commit
+    needs: clippy
     steps:
       - uses: actions/checkout@v3
       - uses: dtolnay/rust-toolchain@stable
@@ -112,7 +45,7 @@ jobs:
   python-test:
     name: "Test Python ${{ matrix.python-version }}"
     runs-on: "ubuntu-latest"
-    needs: pre-commit
+    needs: clippy
     strategy:
       matrix:
         python-version: ["3.8", "3.9", "3.10", "3.11"]
@@ -134,25 +67,16 @@ jobs:
         run: "pytest"
 
   msrv:
-    runs-on: ubuntu-latest
-    needs: [cargo-test, python-test]
-    # we use a matrix here just because env can't be used in job names
-    # https://docs.github.com/en/actions/learn-github-actions/contexts#context-availability
+    runs-on: "ubuntu-latest"
+    needs: ["cargo-test", "python-test"]
     strategy:
       matrix:
-        msrv: [1.58.1] # 2021 edition requires 1.56
-    name: ubuntu / ${{ matrix.msrv }}
+        msrv: ["1.58.1"]
+    name: "ubuntu / ${{ matrix.msrv }}"
     steps:
-      - uses: actions/checkout@v3
+      - uses: "actions/checkout@v3"
+      - uses: "dtolnay/rust-toolchain@master"
         with:
-          submodules: true
-      - name: Install ${{ matrix.toolchain }}
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: ${{ matrix.msrv }}
-          default: true
-      - name: cargo +${{ matrix.msrv }} check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
+          toolchain: "${{ matrix.msrv }}"
+      - name: "cargo +${{ matrix.msrv }} check"
+        run: "cargo check"
