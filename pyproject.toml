@@ -35,3 +35,7 @@ features = ["pyo3/extension-module"]
 minversion = "6.0"
 addopts = "-ra"
 testpaths = ["tests"]
+
+[tool.black]
+line-length = 88
+target-version = ["py37"]

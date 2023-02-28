@@ -1,7 +1,7 @@
 """python_test.py
 
-This set of tests roughly recreate those that are in lib.rs but use the compiled 
-package.
+This set of tests roughly recreate those that are in lib.rs but use the
+compiled package.
 """
 from pathlib import Path
 import copy
@@ -109,11 +109,12 @@ def test_property_seq_names(al):
 def test_get_seq(al):
     contig = "Bacillus_subtilis"
     expected = (
-        "AGAGTGAAGCCAATATTCCGATAACGATTGCTTTCATGATATCCCTCATTCTGGCATTATTTTTTTATACTATACTATTC"
-        "GATATCGCACAGATCAATGGAGTCGTGAGAAAATAAACATGTTTTGCGAACCGCTATGTGTGGAAGACAAAAAATGGAGG"
-        "TGAAATTGATGGAAGCAAAGACACAGGCGTACTTTTTTCAGGATGATGGCAGGATTCCGAATCACCCTGATTTTCCGCTC"
-        "GTTGTGTATCAAAACGCACTCAAGGACACCGGTCAGGCAGAGCGGATCGTCAACCGGCATGGCTGGTCAAACAGCTGGTC"
-        "GGGGAGTGTTTTTCCATACCATCATTATCACAGCAATACGCATGAAGTCCTGATTGCAGTTCGGGGAGAGGCTGTGATTC"
+        "AGAGTGAAGCCAATATTCCGATAACGATTGCTTTCATGATATCCCTCATTCTGGCATTATTTTTTTATA"
+        "CTATACTATTCGATATCGCACAGATCAATGGAGTCGTGAGAAAATAAACATGTTTTGCGAACCGCTATG"
+        "TGTGGAAGACAAAAAATGGAGGTGAAATTGATGGAAGCAAAGACACAGGCGTACTTTTTTCAGGATGAT"
+        "GGCAGGATTCCGAATCACCCTGATTTTCCGCTCGTTGTGTATCAAAACGCACTCAAGGACACCGGTCAG"
+        "GCAGAGCGGATCGTCAACCGGCATGGCTGGTCAAACAGCTGGTCGGGGAGTGTTTTTCCATACCATCAT"
+        "TATCACAGCAATACGCATGAAGTCCTGATTGCAGTTCGGGGAGAGGCTGTGATTC"
     )
     seq = al.seq(contig)
     assert seq == expected
@@ -121,11 +122,12 @@ def test_get_seq(al):
 
 def test_map_one(al):
     mappings = al.map(
-        "AGAGCAGGTAGGATCGTTGAAAAAAGAGTACTCAGGATTCCATTCAACTTTTACTGATTTGAAGCGTACTGTTTATGGCC"
-        "AAGAATATTTACGTCTTTACAACCAATACGCAAAAAAAGGTTCATTGAGTTTGGTTGTGATTTGATGAAAATTACTGAGA"
-        "ATAACAGGATTATTAAGCTGATTGATGAACTAAATCAGCTTAATAAATATTCTTTGCAGATAGGAATATTTGGGGAAAAT"
-        "GATTCTTTTATGGCGATGTTGGCCCAAGTTCATGAATTTGGGGTGACTATTCGTCCCAAAGGTCGTTTTCTTGTTATACC"
-        "ACTTATGAAAAAGTATAGAGGTAAAAGTCCACGTCAATTTGATTTGTTTTTTATGCAAACTAAAGAAAATCACAAGTTTT",
+        "AGAGCAGGTAGGATCGTTGAAAAAAGAGTACTCAGGATTCCATTCAACTTTTACTGATTTGAAGCGTAC"
+        "TGTTTATGGCCAAGAATATTTACGTCTTTACAACCAATACGCAAAAAAAGGTTCATTGAGTTTGGTTGT"
+        "GATTTGATGAAAATTACTGAGAATAACAGGATTATTAAGCTGATTGATGAACTAAATCAGCTTAATAAA"
+        "TATTCTTTGCAGATAGGAATATTTGGGGAAAATGATTCTTTTATGGCGATGTTGGCCCAAGTTCATGAA"
+        "TTTGGGGTGACTATTCGTCCCAAAGGTCGTTTTCTTGTTATACCACTTATGAAAAAGTATAGAGGTAAA"
+        "AGTCCACGTCAATTTGATTTGTTTTTTATGCAAACTAAAGAAAATCACAAGTTTT",
         cs=True,
     )
     assert len(mappings) == 1
@@ -152,25 +154,25 @@ def test_map_batch_fail_dict_single(al, fasta_iter):
     fasta = next(fasta_iter)
     al.enable_threading(2)
     with pytest.raises(TypeError) as excinfo:
-        mappings = al.map_batch(fasta)
-    err = str(excinfo)
-    assert "Unsupported batch type, pass a list, iter, generator or tuple" in err
+        _ = al.map_batch(fasta)
+    e = str(excinfo)
+    assert "Unsupported batch type, pass a list, iter, generator or tuple" in e
 
 
 def test_map_batch_fail_dict_many(al, fasta_iter):
     fasta = {i: dct for i, dct in enumerate(fasta_iter)}
     al.enable_threading(2)
     with pytest.raises(TypeError) as excinfo:
-        mappings = al.map_batch(fasta)
-    err = str(excinfo)
-    assert "Unsupported batch type, pass a list, iter, generator or tuple" in err
+        _ = al.map_batch(fasta)
+    e = str(excinfo)
+    assert "Unsupported batch type, pass a list, iter, generator or tuple" in e
 
 
 def test_map_batch_fail_list_str(al, fasta_iter):
     fasta = [dct["seq"] for dct in fasta_iter]
     al.enable_threading(2)
     with pytest.raises(TypeError) as excinfo:
-        mappings = al.map_batch(fasta)
+        _ = al.map_batch(fasta)
     assert "Element in iterable is not a dictionary" in str(excinfo.value)
 
 
@@ -178,7 +180,7 @@ def test_map_batch_fail_no_seq_key(al, fasta_iter):
     fasta = [{"SEQ": dct["seq"]} for dct in fasta_iter]
     al.enable_threading(2)
     with pytest.raises(KeyError) as excinfo:
-        mappings = al.map_batch(fasta)
+        _ = al.map_batch(fasta)
     assert "AHHH Key 🗝️  not found in iterated dictionary" in str(excinfo)
 
 
@@ -186,7 +188,7 @@ def test_map_batch_fail_seq_not_str(al, fasta_iter):
     fasta = [{"seq": dct["seq"].encode()} for dct in fasta_iter]
     al.enable_threading(2)
     with pytest.raises(ValueError) as excinfo:
-        mappings = al.map_batch(fasta)
+        _ = al.map_batch(fasta)
     assert "`seq` must be a string" in str(excinfo)
 
 

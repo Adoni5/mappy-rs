@@ -52,7 +52,7 @@ aligner = mappy_rs.Aligner("resources/test/test.mmi")
 aligner.enable_threading(10)
 ```
 
-Enabling threading makes the `map_batch` method available.  
+Enabling threading makes the `map_batch` method available.
 This method requires a list or iterable of dictionaries, which can have any number of keys and depth, but **must** contain the key `seq` with a string value in the top-level dictionary.
 
 For example:
@@ -62,7 +62,7 @@ import mappy_rs
 aligner = mappy_rs.Aligner("resources/test/test.mmi")
 aligner.enable_threading(10)
 seqs = [
-    {"seq": "ACGTAGCATCGAGACTACGA", "Other_random_key": "banter"}, 
+    {"seq": "ACGTAGCATCGAGACTACGA", "Other_random_key": "banter"},
     {"seq": "ACGTAGCATCGAGACTACGA", "Other_random_key": "banter"},
 ]
 for (mapping, data) in aligner.map_batch(seqs):
