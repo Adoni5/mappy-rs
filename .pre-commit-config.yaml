@@ -24,5 +24,3 @@ repos:
         exclude: '(\.patch|\.diff|\.fasta$|\.fastq$|\.sam$|\.rbt$|\.bit$|target/)'
       - id: trailing-whitespace
         exclude: '(target/|\.patch|\.diff|\.fasta$|\.fastq$|\.sam$|\.rbt$|\.bit$)'
-
-
