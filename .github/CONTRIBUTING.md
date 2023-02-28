@@ -39,6 +39,7 @@ cargo t --no-default-features
 To avoid committing code that will fail automated checks, you should install `pre-commit` and its hooks:
 
 ```console
+pre-commit install  -t pre-commit -t post-checkout -t post-merge
 pre-commit install
 pre-commit run --all-files
 ```
