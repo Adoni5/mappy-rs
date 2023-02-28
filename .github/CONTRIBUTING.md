@@ -37,9 +37,10 @@ cargo t --no-default-features
 ## Linting code
 
 To avoid committing code that will fail automated checks, you should install `pre-commit` and its hooks:
+The following will setup pre-commit in the repository, and automatically run when you checkout a branch, try to commit or merge.
 
 ```console
-pre-commit install  -t pre-commit -t post-checkout -t post-merge
-pre-commit install
+pip install pre-commit
+pre-commit install -t pre-commit -t post-checkout -t post-merge
 pre-commit run --all-files
 ```
