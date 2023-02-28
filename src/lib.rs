@@ -1,6 +1,6 @@
 //! A multithreaded minimap2 mappy clone in rust.
 //! Serves as a drop in for mappy in single threaded mode.
-//! Designed for use with readfish https://github.com/LooseLab/readfish/.
+//! Designed for use with readfish https://github.com/LooseLab/readfish/
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
 
