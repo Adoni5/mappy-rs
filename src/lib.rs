@@ -631,7 +631,6 @@ impl Aligner {
         let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
 
         // 30 seconds 
-        // let p = ThreadPool::new(self.n_threads);
         for (id_num, py_dicts) in iter.enumerate() {
             let py_dict = py_dicts?;
             let data: HashMap<String, Py<PyAny>> = match py_dict.extract() {
@@ -642,8 +641,7 @@ impl Aligner {
                     ))
                 }
             };
-            // res.data.insert(id_num, data);
-            let sendy = res.tx.clone();
+            res.data.insert(id_num, data);
             let seq: String = match py_dict.get_item("seq") {
                 Ok(seq) => match seq.extract() {
                     Ok(seq) => seq,
@@ -658,19 +656,8 @@ impl Aligner {
 
             work_queue.push((id_num, seq)).unwrap();
         }
-        //     let aligner = self.clone();
-        //     p.execute(move || {
-                // let maps = aligner.map(seq, None, true, true).unwrap();
-        //         match sendy.send(WorkQueue::Result((maps, id_num))) {
-        //             Ok(()) => {}
-        //             Err(e) => {
-        //                 println!("Internal error returning data. {e}");
-        //             }
-        //         }
-        //     });
-        // }
-        // p.join();
-        let handles = vec![];
+
+        let mut handles = vec![];
         for _ in 0..self.n_threads {
             let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
             // let results_queue = Arc::clone(&res.results_queue);
@@ -683,7 +670,7 @@ impl Aligner {
                 if work_queue.is_empty() {
                     break;
                 }
-                let (id_num, seq): (usize, String) = work_queue.pop();
+                let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
                 let maps = aligner.map(seq, None, true, true).unwrap();
                 match sendy.send(WorkQueue::Result((maps, id_num))) {
                     Ok(()) => {}

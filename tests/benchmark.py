@@ -58,7 +58,7 @@ def align_single(al):
             print(res)
 
 @pytest.mark.benchmark
-@pytest.mark.parametrize("i", [*list(range(1, 9))])
+@pytest.mark.parametrize("i", [*list(range(1, 6))])
 def test_benchmark_multi(i, benchmark):
     al = Aligner("../resources/benchmarking/index/hg38.mmi")
     al.enable_threading(i)
