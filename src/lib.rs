@@ -630,7 +630,7 @@ impl Aligner {
         };
         let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
 
-        // 30 seconds 
+        // 30 seconds
         for (id_num, py_dicts) in iter.enumerate() {
             let py_dict = py_dicts?;
             let data: HashMap<String, Py<PyAny>> = match py_dict.extract() {
@@ -733,7 +733,7 @@ impl AlignmentBatchResultIter {
             tx,
             rx,
             data: FnvHashMap::default(),
-            work_queue: Arc::new(ArrayQueue::<(usize, String)>::new(50000))
+            work_queue: Arc::new(ArrayQueue::<(usize, String)>::new(50000)),
         }
     }
 
