@@ -632,19 +632,19 @@ impl Aligner {
             let handle = std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(100));
                 loop {
-
-                if work_queue.is_empty() {
-                    break;
-                }
-                let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
-                let maps = aligner.map(seq, None, true, true).unwrap();
-                match results_tx.send(WorkQueue::Result((maps, id_num))) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        println!("Internal error returning data. {e}");
+                    if work_queue.is_empty() {
+                        break;
+                    }
+                    let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
+                    let maps = aligner.map(seq, None, true, true).unwrap();
+                    match results_tx.send(WorkQueue::Result((maps, id_num))) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            println!("Internal error returning data. {e}");
+                        }
                     }
                 }
-        }});
+            });
             handles.push(handle);
         }
         let iter = match seqs.iter() {
