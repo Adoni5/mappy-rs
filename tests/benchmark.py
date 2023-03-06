@@ -3,7 +3,9 @@ import mappy as mp
 import pytest
 from pathlib import Path
 
-RESOURCES = Path(__file__).parent.resolve().parent.resolve() / "resources/benchmarking" 
+RESOURCES = (
+    Path(__file__).parent.resolve().parent.resolve() / "resources/benchmarking"
+)
 FASTQ_PATH = RESOURCES / "fastq"
 INDEX_PATH = RESOURCES / "index/hg38.mmi"
 
@@ -39,7 +41,7 @@ def _gen_fastq(path: Path):
             if "".join(f.suffixes).lower() not in _FILE_SUFFIXES:
                 continue
             yield from mp.fastx_read(str(f))
-    else: 
+    else:
         yield from mp.fastx_read(str(f))
 
 
@@ -51,7 +53,8 @@ def align_multi(al):
         Multithreaded aligner client
     """
     res = al.map_batch(
-        {"read_id": r_id, "seq": seq} for r_id, seq, _ in _gen_fastq(FASTQ_PATH)
+        {"read_id": r_id, "seq": seq}
+        for r_id, seq, _ in _gen_fastq(FASTQ_PATH)
     )
     for _ in res:
         continue
