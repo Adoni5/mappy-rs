@@ -3,8 +3,9 @@ import mappy as mp
 import pytest
 from pathlib import Path
 
-FASTQ_PATH = Path("../resources/benchmarking/fastq")
-INDEX_PATH = Path("../resources/benchmarking/index/hg38.mmi")
+RESOURCES = Path(__file__).parent.resolve().parent.resolve() / "resources/benchmarking" 
+FASTQ_PATH = RESOURCES / "fastq"
+INDEX_PATH = RESOURCES / "index/hg38.mmi"
 
 
 def _check_path_present(path: Path):
@@ -34,12 +35,12 @@ def _gen_fastq(path: Path):
     """
     assert _check_path_present(path)
     if path.is_dir():
-        for f in path.iterdir():
-            if set(f.suffixes).intersection(_FILE_SUFFIXES):
-                yield from mp.fastx_read(str(f))
-    else:
-        if set(path.suffixes).intersection(_FILE_SUFFIXES):
+        for f in path.rglob("*"):
+            if "".join(f.suffixes).lower() not in _FILE_SUFFIXES:
+                continue
             yield from mp.fastx_read(str(f))
+    else: 
+        yield from mp.fastx_read(str(f))
 
 
 def align_multi(al):
@@ -50,7 +51,7 @@ def align_multi(al):
         Multithreaded aligner client
     """
     res = al.map_batch(
-        {"read_id": r_id, "seq": seq} for r_id, seq, _ in _gen_fastq()
+        {"read_id": r_id, "seq": seq} for r_id, seq, _ in _gen_fastq(FASTQ_PATH)
     )
     for _ in res:
         continue
@@ -68,7 +69,6 @@ def align_single(al):
             continue
 
 
-@pytest.mark.benchmark
 @pytest.mark.parametrize("i", [*list(range(1, 6))])
 def test_benchmark_multi(i, benchmark):
     al = Aligner(INDEX_PATH)
@@ -76,7 +76,6 @@ def test_benchmark_multi(i, benchmark):
     benchmark.pedantic(align_multi, args=(al,), iterations=5, rounds=1)
 
 
-@pytest.mark.benchmark
 def test_benchmark_single(benchmark):
     al = mp.Aligner(INDEX_PATH)
     benchmark.pedantic(align_single, args=(al,), iterations=5, rounds=1)
