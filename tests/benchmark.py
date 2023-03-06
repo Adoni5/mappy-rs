@@ -1,7 +1,6 @@
 from mappy_rs import Aligner
 import mappy as mp
 import pytest
-from rich import print
 from pathlib import Path
 
 
@@ -35,6 +34,9 @@ def _gen_fastq(path: Path):
         for f in path.iterdir():
             if set(f.suffixes).intersection(_FILE_SUFFIXES):
                 yield from mp.fastx_read(str(f))
+    else:
+        if set(path.suffixes).intersection(_FILE_SUFFIXES):
+            yield from mp.fastx_read(str(f))
 
 
 def align_multi(al):
@@ -48,6 +50,8 @@ def align_multi(al):
         {"read_id": r_id, "seq": seq}
         for r_id, seq, _ in _gen_fastq(Path("../resources/benchmarking/fastq"))
     )
+    for _ in res:
+        continue
 
 
 def align_single(al):
@@ -58,8 +62,8 @@ def align_single(al):
         Single threaded aligner client
     """
     for _, seq, _ in _gen_fastq(Path("../resources/benchmarking/fastq")):
-        for res in al.map(seq):
-            print(res)
+        for _ in al.map(seq):
+            continue
 
 
 @pytest.mark.benchmark
