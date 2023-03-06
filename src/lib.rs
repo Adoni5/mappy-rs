@@ -624,13 +624,35 @@ impl Aligner {
             }
         };
 
+        let mut handles = vec![];
+        for _ in 0..self.n_threads {
+            let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
+            // let results_queue = Arc::clone(&res.results_queue);
+            // let counter = Arc::clone(&res.sequences_aligned);
+            let sendy = res.tx.clone();
+
+            let aligner = self.clone();
+            let handle = std::thread::spawn(move || loop {
+                // let backoff = crossbeam::utils::Backoff::new();
+                if work_queue.is_empty() {
+                    break;
+                }
+                let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
+                let maps = aligner.map(seq, None, true, true).unwrap();
+                match sendy.send(WorkQueue::Result((maps, id_num))) {
+                    Ok(()) => {}
+                    Err(e) => {
+                        println!("Internal error returning data. {e}");
+                    }
+                }
+            });
+            handles.push(handle);
+        }
         let iter = match seqs.iter() {
             Ok(it) => it,
             _ => return Err(PyTypeError::new_err("Could not iterate batch")),
         };
         let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
-
-        // 30 seconds
         for (id_num, py_dicts) in iter.enumerate() {
             let py_dict = py_dicts?;
             let data: HashMap<String, Py<PyAny>> = match py_dict.extract() {
@@ -655,31 +677,6 @@ impl Aligner {
             };
 
             work_queue.push((id_num, seq)).unwrap();
-        }
-
-        let mut handles = vec![];
-        for _ in 0..self.n_threads {
-            let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
-            // let results_queue = Arc::clone(&res.results_queue);
-            // let counter = Arc::clone(&res.sequences_aligned);
-            let sendy = res.tx.clone();
-
-            let aligner = self.clone();
-            let handle = std::thread::spawn(move || loop {
-                // let backoff = crossbeam::utils::Backoff::new();
-                if work_queue.is_empty() {
-                    break;
-                }
-                let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
-                let maps = aligner.map(seq, None, true, true).unwrap();
-                match sendy.send(WorkQueue::Result((maps, id_num))) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        println!("Internal error returning data. {e}");
-                    }
-                }
-            });
-            handles.push(handle);
         }
         for handle in handles {
             handle.join().unwrap();
