@@ -3,6 +3,9 @@ import mappy as mp
 import pytest
 from pathlib import Path
 
+FASTQ_PATH = Path("../resources/benchmarking/fastq")
+INDEX_PATH = Path("../resources/benchmarking/index/hg38.mmi")
+
 
 def _check_path_present(path: Path):
     """
@@ -47,8 +50,7 @@ def align_multi(al):
         Multithreaded aligner client
     """
     res = al.map_batch(
-        {"read_id": r_id, "seq": seq}
-        for r_id, seq, _ in _gen_fastq(Path("../resources/benchmarking/fastq"))
+        {"read_id": r_id, "seq": seq} for r_id, seq, _ in _gen_fastq()
     )
     for _ in res:
         continue
@@ -61,7 +63,7 @@ def align_single(al):
     al: mappy.Aligner
         Single threaded aligner client
     """
-    for _, seq, _ in _gen_fastq(Path("../resources/benchmarking/fastq")):
+    for _, seq, _ in _gen_fastq(FASTQ_PATH):
         for _ in al.map(seq):
             continue
 
@@ -69,23 +71,23 @@ def align_single(al):
 @pytest.mark.benchmark
 @pytest.mark.parametrize("i", [*list(range(1, 6))])
 def test_benchmark_multi(i, benchmark):
-    al = Aligner("../resources/benchmarking/index/hg38.mmi")
+    al = Aligner(INDEX_PATH)
     al.enable_threading(i)
-    benchmark.pedantic(align_multi, args=(al,), iterations=1, rounds=1)
+    benchmark.pedantic(align_multi, args=(al,), iterations=5, rounds=1)
 
 
 @pytest.mark.benchmark
 def test_benchmark_single(benchmark):
-    al = mp.Aligner("../resources/benchmarking/index/hg38.mmi")
-    benchmark.pedantic(align_single, args=(al,), iterations=1, rounds=1)
+    al = mp.Aligner(INDEX_PATH)
+    benchmark.pedantic(align_single, args=(al,), iterations=5, rounds=1)
 
 
 if __name__ == "__main__":
-    al = Aligner("../resources/benchmarking/index/hg38.mmi")
+    al = Aligner(INDEX_PATH)
     al.enable_threading(8)
     res = al.map_batch(
         {"read_id": r_id, "seq": seq}
-        for r_id, seq, _ in _gen_fastq(Path("../resources/benchmarking/fastq"))
+        for r_id, seq, _ in _gen_fastq(FASTQ_PATH)
     )
     for x in res:
         pass
