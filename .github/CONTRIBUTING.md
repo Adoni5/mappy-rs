@@ -34,6 +34,22 @@ python -m pytest
 cargo t --no-default-features
 ```
 
+## Running Benchmarks
+
+The benchmarking script is found in `tests/benchmarking.py`. The paths to the mapping index and the fastq will have to be set, these variables (`FASTQ_PATH`, `INDEX_PATH`)
+are located at the top of the script. `FASTQ_PATH` can be set to a directory containing fastq or gzipped fastq, or a path to a fastq file.
+`INDEX_PATH` must be set to a path to an index file.
+
+```console
+cd mappy-rs
+python3 -m venv .env
+source ./.env/bin/activate
+pip install --upgrade pip
+pip install '.[benchmark]'
+pytest tests/benchmark.py
+```
+
+
 ## Linting code
 
 To avoid committing code that will fail automated checks, you should install `pre-commit` and its hooks:
