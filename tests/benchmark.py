@@ -46,7 +46,7 @@ def align_multi(al):
     al: mappy_rs.Aligner
         Multithreaded aligner client
     """
-    _ = al.map_batch(
+    res = al.map_batch(
         {"read_id": r_id, "seq": seq}
         for r_id, seq, _ in _gen_fastq(Path("../resources/benchmarking/fastq"))
     )

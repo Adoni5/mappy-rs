@@ -17,6 +17,7 @@ use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::Arc;
+use std::time::Duration;
 
 /// Strand enum
 #[pyclass]
@@ -623,29 +624,27 @@ impl Aligner {
                 ))
             }
         };
-
         let mut handles = vec![];
         for _ in 0..self.n_threads {
             let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
-            // let results_queue = Arc::clone(&res.results_queue);
-            // let counter = Arc::clone(&res.sequences_aligned);
-            let sendy = res.tx.clone();
-
+            let results_tx = res.tx.clone();
             let aligner = self.clone();
-            let handle = std::thread::spawn(move || loop {
-                // let backoff = crossbeam::utils::Backoff::new();
+            let handle = std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(100));
+                loop {
+
                 if work_queue.is_empty() {
                     break;
                 }
                 let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
                 let maps = aligner.map(seq, None, true, true).unwrap();
-                match sendy.send(WorkQueue::Result((maps, id_num))) {
+                match results_tx.send(WorkQueue::Result((maps, id_num))) {
                     Ok(()) => {}
                     Err(e) => {
                         println!("Internal error returning data. {e}");
                     }
                 }
-            });
+        }});
             handles.push(handle);
         }
         let iter = match seqs.iter() {
