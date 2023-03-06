@@ -728,7 +728,7 @@ impl AlignmentBatchResultIter {
     /// Initialise a new `AlignmentBatchResultIter`. Spawns the Send And Receive channels.
     #[new]
     pub fn new() -> Self {
-        let (tx, rx) = bounded(4000);
+        let (tx, rx) = bounded(20000);
         AlignmentBatchResultIter {
             tx,
             rx,
@@ -752,11 +752,13 @@ impl AlignmentBatchResultIter {
             Ok(work_queue_member) => match work_queue_member {
                 WorkQueue::Done => IterNextOutput::Return("Home you're finished, 'cause I am..."),
                 WorkQueue::Result((mapping, id_num)) => {
-                    let data = self.data.get(&id_num).unwrap().clone();
+                    let data = self.data.remove(&id_num).unwrap();
                     IterNextOutput::Yield((mapping, data))
                 }
             },
-            Err(RecvError) => IterNextOutput::Return("Home you're finished, 'cause I am..."),
+            Err(RecvError) => {
+                IterNextOutput::Return("Home you're finished, 'cause I have exploded...")
+            }
         }
     }
 }
