@@ -630,6 +630,7 @@ impl Aligner {
             let results_tx = res.tx.clone();
             let aligner = self.clone();
             let handle = std::thread::spawn(move || {
+                // Sleep so data has a chance to be loaded below
                 std::thread::sleep(Duration::from_millis(100));
                 loop {
                     if work_queue.is_empty() {
