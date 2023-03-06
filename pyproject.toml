@@ -38,5 +38,5 @@ addopts = "-ra"
 testpaths = ["tests"]
 
 [tool.black]
-line-length = 88
-target-version = ["py37"]
+line-length = 79
+target-version = ["py38"]
