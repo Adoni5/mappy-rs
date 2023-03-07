@@ -62,7 +62,7 @@ def align_multi(al, mc):
         for r_id, seq, _ in _gen_fastq(FASTQ_PATH)
     )
     MAPPY_RS_COUNT = sum(1 for (maps, _) in res for map in maps)
-    assert(MAPPY_RS_COUNT==mc["mappy_count"])
+    assert MAPPY_RS_COUNT == mc["mappy_count"]
 
 
 def align_single(al, mc):
@@ -77,19 +77,22 @@ def align_single(al, mc):
         for _ in al.map(seq):
             count += 1
     mc["mappy_count"] = count
-    
+
 
 def test_benchmark_single(benchmark):
     al = mp.Aligner(str(INDEX_PATH))
-    benchmark.pedantic(align_single, args=(al, MAPPY_COUNT), iterations=1, rounds=1)
-
+    benchmark.pedantic(
+        align_single, args=(al, MAPPY_COUNT), iterations=1, rounds=1
+    )
 
 
 @pytest.mark.parametrize("i", [*list(range(1, 2))])
 def test_benchmark_multi(i, benchmark):
     al = Aligner(INDEX_PATH)
     al.enable_threading(2)
-    benchmark.pedantic(align_multi, args=(al, MAPPY_COUNT), iterations=1, rounds=1)
+    benchmark.pedantic(
+        align_multi, args=(al, MAPPY_COUNT), iterations=1, rounds=1
+    )
 
 
 if __name__ == "__main__":
