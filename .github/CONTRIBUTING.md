@@ -46,6 +46,7 @@ http://s3.amazonaws.com/nanopore-human-wgs/rel6/FASTQTars/FAB42316-216722908_Mul
 And a good human index can be made using [seqkit](https://bioinf.shenwei.me/seqkit/) and the [HG38 reference](https://ftp.ncbi.nlm.nih.gov/refseq/H_sapiens/annotation/GRCh38_latest/refseq_identifiers/GRCh38_latest_genomic.fna.gz)
 
 ```console
+# Keep only complete contigs, filtering out alts
 seqkit -j 8 grep -o "only_primary_hg38.fna" -r -p "^NC" GCF_000001405.40_GRCh38.p14_genomic.fna.gz
 minimap2 -d hg38.mmi only_primary_hg38.fna
 ```
@@ -61,6 +62,30 @@ pip install '.[benchmark]'
 pytest tests/benchmark.py
 ```
 
+Benchmarks can be filtered by name, for either running just the comparison against minimap2s mappy without threading, or just benchmrking, parameterising the number of threads.
+
+For classic/single:
+```console
+pytest --benchmark-warmup-iterations=1 --maxfail=1 --capture=tee-sys -vk "classic"  benchmark.py
+```
+
+For multi:
+```console
+pytest --benchmark-warmup-iterations=1 --maxfail=1 --capture=tee-sys -vk "multi"  benchmark.py
+```
+
+In order to save previous benchmarks for comparison just add `--benchmark-autosave` or `--benchmark-save=some-name`. Full documentation can be found in the pytest-benchmark [docs](https://pytest-benchmark.readthedocs.io/en/latest/comparing.html).
+
+#### Comparisons
+Simply run
+
+```console
+pytest-benchmark compare 0001 0002
+```
+
+Where 0001 0002 are the names of previously saved benhcmarks.
+
+You can also get a nice plot with `--benchmark-histogram`. The result is a modified Tukey box and whisker plot where the outliers (the small bullets) are Min and Max. Note that if you do not supply a name for the plot it is recommended that -`-benchmark-histogram` is the last option passed.
 
 ## Linting code
 
