@@ -14,6 +14,8 @@ Heavily leaning on and inspired by Joeseph Guhlin's minimap2-rs [repository](htt
 ## Developers
 Start with some Docs on Py03 - https://pyo3.rs/latest/
 
+If you wish to contribute, have a look at [CONTRIBUTING.md](.github/CONTRIBUTING.md)
+
 In order to build an importable module:
 
 ```bash
