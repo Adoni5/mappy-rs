@@ -7,9 +7,7 @@ RESOURCES = (
     Path(__file__).parent.resolve().parent.resolve() / "resources/benchmarking"
 )
 FASTQ_PATH = RESOURCES / "fastq"
-INDEX_PATH = RESOURCES / "index/hg38_simple.mmi"
-print(FASTQ_PATH)
-print(INDEX_PATH)
+INDEX_PATH = RESOURCES / "index/hg38.mmi"
 MAPPY_RS_COUNT = 0
 MAPPY_COUNT = {}
 
@@ -63,7 +61,7 @@ def align_multi(al, mc):
         {"read_id": r_id, "seq": seq}
         for r_id, seq, _ in _gen_fastq(FASTQ_PATH)
     )
-    MAPPY_RS_COUNT = sum(1 for _ in res)
+    MAPPY_RS_COUNT = sum(1 for (maps, _) in res for map in maps)
     assert(MAPPY_RS_COUNT==mc["mappy_count"])
 
 
