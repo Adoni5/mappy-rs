@@ -27,6 +27,7 @@ keywords = ["alignment", "bioinformatics", "python", "rust", "minimap2"]
 [project.optional-dependencies]
 tests = ["pytest"]
 dev = ["mappy-rs[tests]", "pre-commit"]
+benchmark = ["mappy_rs[dev]", "pytest-benchmark[histogram]", "mappy"]
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
@@ -37,5 +38,5 @@ addopts = "-ra"
 testpaths = ["tests"]
 
 [tool.black]
-line-length = 88
-target-version = ["py37"]
+line-length = 79
+target-version = ["py38"]

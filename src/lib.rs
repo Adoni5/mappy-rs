@@ -5,6 +5,7 @@
 #![deny(clippy::missing_docs_in_private_items)]
 
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
+use crossbeam::queue::ArrayQueue;
 use fnv::FnvHashMap;
 use pyo3::exceptions::{
     PyKeyError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -15,7 +16,8 @@ use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use threadpool::ThreadPool;
+use std::sync::Arc;
+use std::time::Duration;
 
 /// Strand enum
 #[pyclass]
@@ -622,13 +624,35 @@ impl Aligner {
                 ))
             }
         };
-
+        let mut handles = vec![];
+        for _ in 0..self.n_threads {
+            let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
+            let results_tx = res.tx.clone();
+            let aligner = self.clone();
+            let handle = std::thread::spawn(move || {
+                // Sleep so data has a chance to be loaded below
+                std::thread::sleep(Duration::from_millis(100));
+                loop {
+                    if work_queue.is_empty() {
+                        break;
+                    }
+                    let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
+                    let maps = aligner.map(seq, None, true, true).unwrap();
+                    match results_tx.send(WorkQueue::Result((maps, id_num))) {
+                        Ok(()) => {}
+                        Err(e) => {
+                            println!("Internal error returning data. {e}");
+                        }
+                    }
+                }
+            });
+            handles.push(handle);
+        }
         let iter = match seqs.iter() {
             Ok(it) => it,
             _ => return Err(PyTypeError::new_err("Could not iterate batch")),
         };
-
-        let p = ThreadPool::new(self.n_threads);
+        let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
         for (id_num, py_dicts) in iter.enumerate() {
             let py_dict = py_dicts?;
             let data: HashMap<String, Py<PyAny>> = match py_dict.extract() {
@@ -640,7 +664,6 @@ impl Aligner {
                 }
             };
             res.data.insert(id_num, data);
-            let sendy = res.tx.clone();
             let seq: String = match py_dict.get_item("seq") {
                 Ok(seq) => match seq.extract() {
                     Ok(seq) => seq,
@@ -652,18 +675,12 @@ impl Aligner {
                     ))
                 }
             };
-            let aligner = self.clone();
-            p.execute(move || {
-                let maps = aligner.map(seq, None, true, true).unwrap();
-                match sendy.send(WorkQueue::Result((maps, id_num))) {
-                    Ok(()) => {}
-                    Err(e) => {
-                        println!("Internal error returning data. {e}");
-                    }
-                }
-            });
+
+            work_queue.push((id_num, seq)).unwrap();
         }
-        p.join();
+        for handle in handles {
+            handle.join().unwrap();
+        }
         res.tx.send(WorkQueue::Done).unwrap();
         Ok(())
     }
@@ -691,6 +708,8 @@ pub struct AlignmentBatchResultIter {
     rx: Receiver<WorkQueue<(Vec<Mapping>, usize)>>,
     /// HashMap for caching sent data
     data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>,
+    /// ArrayQueue for work
+    work_queue: Arc<ArrayQueue<(usize, String)>>,
 }
 
 impl Default for AlignmentBatchResultIter {
@@ -706,11 +725,12 @@ impl AlignmentBatchResultIter {
     /// Initialise a new `AlignmentBatchResultIter`. Spawns the Send And Receive channels.
     #[new]
     pub fn new() -> Self {
-        let (tx, rx) = bounded(4000);
+        let (tx, rx) = bounded(20000);
         AlignmentBatchResultIter {
             tx,
             rx,
             data: FnvHashMap::default(),
+            work_queue: Arc::new(ArrayQueue::<(usize, String)>::new(50000)),
         }
     }
 
@@ -729,11 +749,13 @@ impl AlignmentBatchResultIter {
             Ok(work_queue_member) => match work_queue_member {
                 WorkQueue::Done => IterNextOutput::Return("Home you're finished, 'cause I am..."),
                 WorkQueue::Result((mapping, id_num)) => {
-                    let data = self.data.get(&id_num).unwrap().clone();
+                    let data = self.data.remove(&id_num).unwrap();
                     IterNextOutput::Yield((mapping, data))
                 }
             },
-            Err(RecvError) => IterNextOutput::Return("Home you're finished, 'cause I am..."),
+            Err(RecvError) => {
+                IterNextOutput::Return("Home you're finished, 'cause I have exploded...")
+            }
         }
     }
 }
