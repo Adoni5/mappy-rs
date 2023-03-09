@@ -614,7 +614,6 @@ impl Aligner {
     /// Align a batch of reads provided in an iterator, using a threadpool with the number of threads specified by
     /// .enable_threading()
     pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyAny) -> PyResult<()> {
-        eprintln!("uwu you've called map_batch! <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
                 "Multi threading not enabled on this instance. Please call `.enable_threading()`",
@@ -647,7 +646,6 @@ impl Aligner {
                         // We
                         Some(worky) => match worky {
                             WorkQueue::Done => {
-                                eprintln!("Work queue is empty");
                                 // This thread has finished
                                 // Lock the mutex and increment
                                 let mut num = counter.lock().unwrap();
@@ -663,7 +661,7 @@ impl Aligner {
                                 match results_tx.send(WorkQueue::Result((maps, id_num))) {
                                     Ok(()) => {}
                                     Err(e) => {
-                                        println!("Internal error returning data. {e}");
+                                        eprintln!("Internal error returning data. {e}");
                                     }
                                 }
                             }
@@ -695,7 +693,6 @@ impl Aligner {
                     ))
                 }
             };
-            // eprintln!("created dict");
             res.data.insert(id_num, data);
             let seq: String = match py_dict.get_item("seq") {
                 Ok(seq) => match seq.extract() {
@@ -804,7 +801,7 @@ impl AlignmentBatchResultIter {
                 }
             },
             Err(RecvError) => {
-                eprintln!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> oopsie whoopsie");
+                eprintln!("Receiver Error");
                 IterNextOutput::Return("Home you're finished, 'cause I have exploded...")
             }
         }
@@ -920,7 +917,6 @@ mod tests {
                           GATTCTTTTATGGCGATGTTGGCCCAAGTTCATGAATTTGGGGTGACTATTCGTCCCAAAGGTCGTTTTCTTGTTATACC\
                           ACTTATGAAAAAGTATAGAGGTAAAAGTCCACGTCAATTTGATTTGTTTTTTATGCAAACTAAAGAAAATCACAAGTTTT"),
             None, true, false).unwrap();
-        println!("{mappings:#?}");
         assert!(mappings.len() == 1);
         assert!(mappings[0].get_target_start().unwrap() == 0);
         assert!(mappings[0].get_target_end().unwrap() == 400);
