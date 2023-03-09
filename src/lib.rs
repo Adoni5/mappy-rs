@@ -6,6 +6,7 @@
 
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
 use crossbeam::queue::ArrayQueue;
+use crossbeam::utils::Backoff;
 use fnv::FnvHashMap;
 use pyo3::exceptions::{
     PyKeyError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
@@ -17,7 +18,6 @@ use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 /// Strand enum
 #[pyclass]
@@ -639,9 +639,9 @@ impl Aligner {
             let counter = Arc::clone(&res._n_finished_threads);
             let n_threads = res._n_threads;
             std::thread::spawn(move || {
-                // Sleep so data has a chance to be loaded below
-                std::thread::sleep(Duration::from_millis(500));
                 loop {
+                    // new backoff
+                    let backoff = Backoff::new();
                     // pop returns None if the queue is empty, which is possible at the start as data hasn't been added below
                     match work_queue.pop() {
                         // We
@@ -672,7 +672,9 @@ impl Aligner {
                             }
                         },
                         // Todo Crossbeam backoff rather than continue
-                        None => continue,
+                        None => {
+                            backoff.snooze();
+                        }
                     }
                     // (id_num, seq): (usize, String)
                 }
