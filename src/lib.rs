@@ -608,6 +608,7 @@ impl Aligner {
     /// Align a batch of reads provided in an iterator, using a threadpool with the number of threads specified by
     /// .enable_threading()
     pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyAny) -> PyResult<()> {
+        eprintln!("uwu you've called map_batch! <<<<<<<<<<<<<<<<<<<<<<<<<<<<");
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
                 "Multi threading not enabled on this instance. Please call `.enable_threading()`",
@@ -631,9 +632,11 @@ impl Aligner {
             let aligner = self.clone();
             let handle = std::thread::spawn(move || {
                 // Sleep so data has a chance to be loaded below
-                std::thread::sleep(Duration::from_millis(100));
+                std::thread::sleep(Duration::from_millis(500));
                 loop {
                     if work_queue.is_empty() {
+                        eprintln!("Work queue is empty");
+                        results_tx.send(WorkQueue::Done).unwrap();
                         break;
                     }
                     let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
@@ -663,6 +666,7 @@ impl Aligner {
                     ))
                 }
             };
+            // eprintln!("created dict");
             res.data.insert(id_num, data);
             let seq: String = match py_dict.get_item("seq") {
                 Ok(seq) => match seq.extract() {
@@ -678,10 +682,10 @@ impl Aligner {
 
             work_queue.push((id_num, seq)).unwrap();
         }
-        for handle in handles {
-            handle.join().unwrap();
-        }
-        res.tx.send(WorkQueue::Done).unwrap();
+        // for handle in handles {
+        //     handle.join().unwrap();
+        // }
+        // res.tx.send(WorkQueue::Done).unwrap();
         Ok(())
     }
 }
@@ -754,6 +758,7 @@ impl AlignmentBatchResultIter {
                 }
             },
             Err(RecvError) => {
+                eprintln!(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> oopsie whoopsie");
                 IterNextOutput::Return("Home you're finished, 'cause I have exploded...")
             }
         }
