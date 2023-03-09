@@ -16,7 +16,7 @@ use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Strand enum
@@ -32,10 +32,14 @@ pub enum Strand {
 /// Enum containing results from multithreaded Alignment
 #[derive(Debug)]
 enum WorkQueue<T> {
+    /// Lemme see you work work wokr work, shorty sumthin sumthin
+    Work(T),
     /// The threads are finished
     Done,
     /// Result of multi threaded mapping queue
     Result(T),
+    /// All threads have finished
+    Finished,
 }
 
 /// Implement `Display` for `Strand`.
@@ -509,6 +513,8 @@ impl Aligner {
     /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (channel_number: int, read_id: str)
     fn map_batch(&self, seqs: &PyAny) -> PyResult<AlignmentBatchResultIter> {
         let mut res = AlignmentBatchResultIter::new();
+        // Set the number of threads
+        res.set_n_threads(self.n_threads);
         // do the heavy work
         self._map_batch(&mut res, seqs)?;
         // let alignment
@@ -625,37 +631,58 @@ impl Aligner {
                 ))
             }
         };
-        let mut handles = vec![];
         for _ in 0..self.n_threads {
-            let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
+            let work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>> =
+                Arc::clone(&res.work_queue);
             let results_tx = res.tx.clone();
             let aligner = self.clone();
-            let handle = std::thread::spawn(move || {
+            let counter = Arc::clone(&res._n_finished_threads);
+            let n_threads = res._n_threads;
+            std::thread::spawn(move || {
                 // Sleep so data has a chance to be loaded below
                 std::thread::sleep(Duration::from_millis(500));
                 loop {
-                    if work_queue.is_empty() {
-                        eprintln!("Work queue is empty");
-                        results_tx.send(WorkQueue::Done).unwrap();
-                        break;
+                    // pop returns None if the queue is empty, which is possible at the start as data hasn't been added below
+                    match work_queue.pop() {
+                        // We
+                        Some(worky) => match worky {
+                            WorkQueue::Done => {
+                                eprintln!("Work queue is empty");
+                                // This thread has finished
+                                // Lock the mutex and increment
+                                let mut num = counter.lock().unwrap();
+                                *num += 1;
+                                // ALL threads have finished
+                                if *num == n_threads {
+                                    results_tx.send(WorkQueue::Finished).unwrap();
+                                }
+                                break;
+                            }
+                            WorkQueue::Work((id_num, seq)) => {
+                                let maps = aligner.map(seq, None, true, true).unwrap();
+                                match results_tx.send(WorkQueue::Result((maps, id_num))) {
+                                    Ok(()) => {}
+                                    Err(e) => {
+                                        println!("Internal error returning data. {e}");
+                                    }
+                                }
+                            }
+                            _ => {
+                                eprintln!("Wrong WorkQueue arm seen in worker thread.")
+                            }
+                        },
+                        // Todo Crossbeam backoff rather than continue
+                        None => continue,
                     }
-                    let (id_num, seq): (usize, String) = work_queue.pop().unwrap();
-                    let maps = aligner.map(seq, None, true, true).unwrap();
-                    match results_tx.send(WorkQueue::Result((maps, id_num))) {
-                        Ok(()) => {}
-                        Err(e) => {
-                            println!("Internal error returning data. {e}");
-                        }
-                    }
+                    // (id_num, seq): (usize, String)
                 }
             });
-            handles.push(handle);
         }
         let iter = match seqs.iter() {
             Ok(it) => it,
             _ => return Err(PyTypeError::new_err("Could not iterate batch")),
         };
-        let work_queue: Arc<ArrayQueue<(usize, String)>> = Arc::clone(&res.work_queue);
+        let work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>> = Arc::clone(&res.work_queue);
         for (id_num, py_dicts) in iter.enumerate() {
             let py_dict = py_dicts?;
             let data: HashMap<String, Py<PyAny>> = match py_dict.extract() {
@@ -680,12 +707,12 @@ impl Aligner {
                 }
             };
 
-            work_queue.push((id_num, seq)).unwrap();
+            work_queue.push(WorkQueue::Work((id_num, seq))).unwrap();
         }
-        // for handle in handles {
-        //     handle.join().unwrap();
-        // }
-        // res.tx.send(WorkQueue::Done).unwrap();
+        // Now we add 4 dones, one for each thread. When the threads see this they know to close as there is no more data
+        for _ in 0..self.n_threads {
+            work_queue.push(WorkQueue::Done).unwrap();
+        }
         Ok(())
     }
 }
@@ -713,7 +740,11 @@ pub struct AlignmentBatchResultIter {
     /// HashMap for caching sent data
     data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>,
     /// ArrayQueue for work
-    work_queue: Arc<ArrayQueue<(usize, String)>>,
+    work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>>,
+    /// Number of threads, which checks against the number offinished threads
+    _n_threads: usize,
+    /// Number of finished threads, used to know when to close the receiver. Is unlocked in the worker threads.
+    _n_finished_threads: Arc<Mutex<usize>>,
 }
 
 impl Default for AlignmentBatchResultIter {
@@ -734,8 +765,15 @@ impl AlignmentBatchResultIter {
             tx,
             rx,
             data: FnvHashMap::default(),
-            work_queue: Arc::new(ArrayQueue::<(usize, String)>::new(50000)),
+            work_queue: Arc::new(ArrayQueue::<WorkQueue<(usize, String)>>::new(50000)),
+            _n_threads: 0_usize,
+            _n_finished_threads: Arc::new(Mutex::new(0_usize)),
         }
+    }
+
+    /// Set the number of threads on this mappy_rs instance
+    pub fn set_n_threads(&mut self, n_threads: usize) {
+        self._n_threads = n_threads;
     }
 
     /// Returns the Iterable, in this case the struct itself.
@@ -751,10 +789,16 @@ impl AlignmentBatchResultIter {
         let try_recv = self.rx.recv();
         match try_recv {
             Ok(work_queue_member) => match work_queue_member {
-                WorkQueue::Done => IterNextOutput::Return("Home you're finished, 'cause I am..."),
+                WorkQueue::Finished => {
+                    IterNextOutput::Return("Home you're finished, 'cause I am...")
+                }
                 WorkQueue::Result((mapping, id_num)) => {
                     let data = self.data.remove(&id_num).unwrap();
                     IterNextOutput::Yield((mapping, data))
+                }
+                _ => {
+                    eprintln!("Received wrong variant as a Result");
+                    IterNextOutput::Return("Home you're finished, 'cause I have exploded...")
                 }
             },
             Err(RecvError) => {
