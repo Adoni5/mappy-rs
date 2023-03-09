@@ -1,6 +1,6 @@
 [package]
 name = "mappy-rs"
-version = "0.0.2"
+version = "0.0.3"
 edition = "2021"
 authors = ["Rory Munro <roryjmunro1@gmail.com>"]
 license = "MIT OR Apache-2.0"
