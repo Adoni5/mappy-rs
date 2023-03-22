@@ -15,7 +15,7 @@ license = {text = "BSD 3-Clause License"}
 description = "A multithreaded python wrapper for rust bindings of minimap2."
 authors = [
     { name = "Rory Munro",  email = "rory.munro@nottingham.ac.uk"},
-    { name = "Aelxander Payne", email = "alexander.payne@nottingham.ac.uk" }
+    { name = "Alexander Payne", email = "alexander.payne@nottingham.ac.uk" }
 ]
 
 maintainers = [
