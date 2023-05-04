@@ -7,7 +7,7 @@
 
 A multi-threaded minimap2 aligner for python. Built for [readfish](https://github.com/LooseLab/readfish/) compatibility.
 
-Heavily leaning on and inspired by Joeseph Guhlin's minimap2-rs [repository](https://github.com/jguhlin/minimap2-rs). They also have a more heavily featured python client, which also provides multithreaded alignment. This client provides a more simple streaming interface for use in pipelines. 
+Heavily leaning on and inspired by Joeseph Guhlin's minimap2-rs [repository](https://github.com/jguhlin/minimap2-rs). They also have a more heavily featured python client, which also provides multithreaded alignment. This client provides a more simple streaming interface for use in pipelines.
 
 `pip install mappy-rs`
 
