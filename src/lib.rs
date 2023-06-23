@@ -10,15 +10,14 @@ use crossbeam::queue::ArrayQueue;
 use fnv::FnvHashMap;
 use itertools::all;
 use minimap2_sys::*;
-use pyo3::exceptions::{
-    PyKeyError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
-};
+use pyo3::exceptions::{PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::pyclass::IterNextOutput;
 use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::mem;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -453,12 +452,36 @@ impl Aligner {
             return Err(PyNotImplementedError::new_err("Not Implemented"));
         }
         if let Some(fn_idx_in) = fn_idx_in {
+            let fn_in = std::ffi::CString::new(fn_idx_in.to_str().unwrap()).unwrap();
+            let idx_reader = std::mem::MaybeUninit::new(unsafe {
+                minimap2_sys::mm_idx_reader_open(fn_in.as_ptr(), &idxopts, std::ptr::null())
+            });
+
+            let mut idx: std::mem::MaybeUninit<*mut minimap2_sys::mm_idx_t> =
+                std::mem::MaybeUninit::uninit();
+
+            let idx_reader = unsafe { idx_reader.assume_init() };
+
+            unsafe {
+                idx = std::mem::MaybeUninit::new(minimap2_sys::mm_idx_reader_read(
+                    &mut *idx_reader as *mut minimap2_sys::mm_idx_reader_t,
+                    n_threads as libc::c_int,
+                ));
+                // Close the reader
+                minimap2_sys::mm_idx_reader_close(idx_reader);
+                // Set index opts
+                minimap2_sys::mm_mapopt_update(&mut mapopts, *idx.as_ptr());
+                // Idx index name
+                minimap2_sys::mm_idx_index_name(idx.assume_init());
+            };
             let al = Aligner {
-                aligner: minimap2::Aligner::builder()
-                    .map_ont()
-                    .with_cigar()
-                    .with_index(fn_idx_in, None)
-                    .expect("Unable to build index"),
+                aligner: minimap2::Aligner {
+                    mapopt: mapopts,
+                    idxopt: idxopts,
+                    threads: n_threads,
+                    idx: Some(unsafe { *idx.assume_init() }),
+                    idx_reader: Some(unsafe { *idx_reader }),
+                },
                 n_threads: 0,
                 _handles: Arc::new(Mutex::new(vec![])),
                 stop: Arc::new(Mutex::new(false)),
@@ -646,63 +669,80 @@ impl Aligner {
                                         .unwrap();
                                     } else {
                                         match _aligner.map(
-                                            seq.as_bytes(),
+                                            String::from(
+                                                "GgggctcctgctgcctggctttctctttttctctctactcTGTCTCATTCTTTTAACAGA
+                                            GGCCTGAGCCCCTTCTGGCCACTAACCCTGAATGTTTCCTGTGCAGTCTGCGGGGATCAT
+                                            CTACTCCGACTCAAAGTGACCAGCACCTCATAAATCCACTTGTGACAGGGCTGGGGACCT
+                                            GGACTGTGTTTCCTCCAACCTTATCACCAGGACTGGGAGCAGCTGGTTCAAGTTTAACCC
+                                            TTTCAGAGCAAAATTCCTCCTTCAACCCGACAGCATGCTCACCTCTCCTGTCACTATAac
+                                            caccaaaaacaacaacaatcatGCTAGCTATCATTTGTGAGGCATATATGGTGGGCATTG
+                                            CTAAGAACTTGACATATACTAGAGTCTTCAAAACAACCCAATGGTTTGGGTTTGTATTCT
+                                            GAGTAATTCCACTTTTCTGGGGAGCAAAGggaagctcagagaggccaagtgacttgccca
+                                            aggccacacagcaggtcAGTGGCCATTCTGGTCCAGTGCCTGCCCCTCTTAGCCACTTCT
+                                            CAGGCACAGACTCATCAGAATGGAAGAGGCCTTGGAGGGAGGCCTAGAGAAACTTACAGT
+                                            TGACACTCTCTTGCTGAACAAttgtccttcctttttcttttcttttttttttcttttttt
+                                            tgagatgggttttcactctgtcacccaggctggagtgcaatggcgccatctcggctcact
+                                            gcaacctctgcctcctgggttcaagtgattctcctgcctcagcctcccaagtagctggga
+                                            ttacaggcacctgccaccacacccagctaatttttgtagtttttagtagagacggggttt
+                                            caccatgttggccaggctggtcttgaactcctgacctcaagtgatccacctgcctcagcc
+                                            tcccaaagtgctgggactacagacgtgagccaccccacccagcctgtcCTCTTTTTTCCT
+                                            ACATGTGGAGCTTGCTCCAAAAGAAATGGAAGGTAAATGCTGGTATCTCCTCCAGCTCCT
+                                            TCTCCCAGTGCAATGAGGGACACTTGAAGgcatggcaggggcaggggaaaCACACAGAGA
+                                            GTGTGGCAGCTGAAGGTACAGCCCTGGCCTGGCCATTCTTTCTGTGGGGCCCCAAGAACG
+                                            CTGGCAGACAACACGGAGAACTTGGTGGAATGTCAGAGACAGCCCACCCAAAgtgctcca
+                                            tttcacagatgaggccaCTGAGCCTTCAGGACTGGGGGGTGCCTAGATTAGGCCACCCAG
+                                            TGAGTCAAGGACTGAGCTGACATGGGCATCCAGGTGTCCCATTGTGGTCATCACCATGGC
+                                            CTGCAAGGACCTCTTGTTCTGATATCTCTGATCTCAGTCTTTCCCACTGCCCCACCCCTC
+                                            TCTCTTTAGCCTTAGAGATTTCAGCCCTTGAATATTTCACAAACACCACAGGCCTCTCAC
+                                            ACCTCTGAGCTTTTCATGTTGTGGGGCCTCTCCATGGAATACCATCCTATATCCTACCTC
+                                            CTTCTTCACTGCCTctgctccaggaagccttccctgattctcAGGCCAGGTCCAGTGCCT
+                                            CCTCTGGGCATCCACAATCTCTTTATCACAGCTCTGATCACATCAGGTGGTAACAATGGA
+                                            TGTGTCTGTTCTCCTTCCAAACTGCCATCTCTTTCAAGCCAGAGCCAGACACACAGCGGT
+                                            GCTCAGAATGTTTGCATAATGAgtgcataaataaatgaatggtgaatgaatgaattctcc
+                                            AGATGCACAAGTCTCCCAGCCTGTACATGGAATGCAGGTACTTGGAGAAATGAGGTGACC
+                                            CCAGAAGATCAAGCCTTAGGAAAGCGGAGGTCATTCCCTTCCCCACTACCCCCAGTACTG
+                                            GAGTCTCCAAAGTCCAAAGGGGACAGCTTCCATGTGAGCAGGGCCAGAGAGGTCCAATGT
+                                            GCATTGTGAATTGACAGCCAGCCACACGGCTCTGCAGGATGAAGCTGCTTACCCCTTCTT
+                                            GAATTTTTTCCCCTATTTATTCCCCACTGCCTCTGCTCTAGCTAGCCTCGTGTTTCTCAG
+                                            ACTCTTGTCACTCATCCTGCGGTttttgctgttctctctgcctggaaagtCTTTCCCCAG
+                                            ATTTGGGGCTTGTCTCCCCTCGATGTtgcctcctcagagaggcccccTGTGACCACTCCA
+                                            ",
+                                            ).as_bytes(),
                                             true,
                                             false,
                                             Some(_aligner.mapopt.max_frag_len as usize),
                                             None,
                                         ) {
                                             Ok(_mappings) => {
-                                                // let mappings: Vec<Mapping> = _mappings
-                                                //     .into_iter()
-                                                //     .map(|m| {
-                                                //         let a = m.alignment.unwrap();
-                                                //         Mapping {
-                                                //             query_start: m.query_start, // i32,
-                                                //             query_end: m.query_end,     // i32,
-                                                //             strand: Strand::from_mm2_strand(
-                                                //                 m.strand,
-                                                //             ), // Strand,
-                                                //             target_name: m.target_name.unwrap(), // String,
-                                                //             target_len: m.target_len, // i32,
-                                                //             target_start: m.target_start, // i32,
-                                                //             target_end: m.target_end, // i32,
-                                                //             match_len: m.match_len,   // i32,
-                                                //             block_len: m.block_len,   // i32,
-                                                //             mapq: m.mapq,             // u32,
-                                                //             is_primary: m.is_primary, // bool
-                                                //             cigar: a.cigar.unwrap_or_default(), // Vec<(u32, u8)>
-                                                //             NM: a.nm,
-                                                //             MD: a.md,
-                                                //             cs: a.cs,
-                                                //         }
-                                                //     })
-                                                // //     .collect();
-                                                // rq.push(WorkQueue::Result((mappings, id_num)))
-                                                //     .unwrap();
-                                                rq.push(WorkQueue::Result((
-                                                    vec![Mapping {
-                                                        query_start: 0,  // i32,
-                                                        query_end: 1000, // i32,
-                                                        strand: Strand::from_mm2_strand(
-                                                            minimap2::Strand::Forward,
-                                                        ), // Strand,
-                                                        target_name: String::from("Hello"), // String,
-                                                        target_len: 101010,                 // i32,
-                                                        target_start: 10,                   // i32,
-                                                        target_end: 1010,                   // i32,
-                                                        match_len: 1000,                    // i32,
-                                                        block_len: 1000,                    // i32,
-                                                        mapq: 60,                           // u32,
-                                                        is_primary: true,                   // bool
-                                                        cigar: vec![], // Vec<(u32, u8)>
-                                                        NM: 0,
-                                                        MD: None,
-                                                        cs: Some(String::from("Cigar string")),
-                                                    }],
-                                                    id_num,
-                                                )))
-                                                .unwrap();
+                                                mem::drop(seq);
+
+                                                let mappings: Vec<Mapping> = _mappings
+                                                    .into_iter()
+                                                    .map(|m| {
+                                                        let a = m.alignment.unwrap();
+                                                        Mapping {
+                                                            query_start: m.query_start, // i32,
+                                                            query_end: m.query_end,     // i32,
+                                                            strand: Strand::from_mm2_strand(
+                                                                m.strand,
+                                                            ), // Strand,
+                                                            target_name: m.target_name.unwrap(), // String,
+                                                            target_len: m.target_len, // i32,
+                                                            target_start: m.target_start, // i32,
+                                                            target_end: m.target_end, // i32,
+                                                            match_len: m.match_len,   // i32,
+                                                            block_len: m.block_len,   // i32,
+                                                            mapq: m.mapq,             // u32,
+                                                            is_primary: m.is_primary, // bool
+                                                            cigar: a.cigar.unwrap_or_default(), // Vec<(u32, u8)>
+                                                            NM: a.nm,
+                                                            MD: a.md,
+                                                            cs: a.cs,
+                                                        }
+                                                    })
+                                                    .collect();
+                                                rq.push(WorkQueue::Result((mappings, id_num)))
+                                                    .unwrap();
                                             }
                                             Err(_) => {
                                                 eprintln!("Failed to map sequence in threaded implementation.")
@@ -976,18 +1016,61 @@ impl Aligner {
                 }
             };
             res.data.insert(id_num, data);
-            let seq: String = match py_dict.get_item("seq") {
-                Ok(seq) => match seq.extract::<String>() {
-                    Ok(seq) => seq.clone(),
-                    _ => return Err(PyValueError::new_err("`seq` must be a string")),
-                },
-                _ => {
-                    return Err(PyKeyError::new_err(
-                        "AHHH Key 🗝️  not found in iterated dictionary",
-                    ))
-                }
-            };
-            work_queue.push(WorkQueue::Work((id_num, seq))).unwrap();
+            // let seq: String = match py_dict.get_item("seq") {
+            //     Ok(seq) => match seq.extract::<String>() {
+            //         Ok(seq) => seq.clone(),
+            //         _ => return Err(PyValueError::new_err("`seq` must be a string")),
+            //     },
+            //     _ => {
+            //         return Err(PyKeyError::new_err(
+            //             "AHHH Key 🗝️  not found in iterated dictionary",
+            //         ))
+            //     }
+            // };
+            work_queue
+                .push(WorkQueue::Work((
+                    id_num,
+                    String::from(
+                        "GgggctcctgctgcctggctttctctttttctctctactcTGTCTCATTCTTTTAACAGA
+                    GGCCTGAGCCCCTTCTGGCCACTAACCCTGAATGTTTCCTGTGCAGTCTGCGGGGATCAT
+                    CTACTCCGACTCAAAGTGACCAGCACCTCATAAATCCACTTGTGACAGGGCTGGGGACCT
+                    GGACTGTGTTTCCTCCAACCTTATCACCAGGACTGGGAGCAGCTGGTTCAAGTTTAACCC
+                    TTTCAGAGCAAAATTCCTCCTTCAACCCGACAGCATGCTCACCTCTCCTGTCACTATAac
+                    caccaaaaacaacaacaatcatGCTAGCTATCATTTGTGAGGCATATATGGTGGGCATTG
+                    CTAAGAACTTGACATATACTAGAGTCTTCAAAACAACCCAATGGTTTGGGTTTGTATTCT
+                    GAGTAATTCCACTTTTCTGGGGAGCAAAGggaagctcagagaggccaagtgacttgccca
+                    aggccacacagcaggtcAGTGGCCATTCTGGTCCAGTGCCTGCCCCTCTTAGCCACTTCT
+                    CAGGCACAGACTCATCAGAATGGAAGAGGCCTTGGAGGGAGGCCTAGAGAAACTTACAGT
+                    TGACACTCTCTTGCTGAACAAttgtccttcctttttcttttcttttttttttcttttttt
+                    tgagatgggttttcactctgtcacccaggctggagtgcaatggcgccatctcggctcact
+                    gcaacctctgcctcctgggttcaagtgattctcctgcctcagcctcccaagtagctggga
+                    ttacaggcacctgccaccacacccagctaatttttgtagtttttagtagagacggggttt
+                    caccatgttggccaggctggtcttgaactcctgacctcaagtgatccacctgcctcagcc
+                    tcccaaagtgctgggactacagacgtgagccaccccacccagcctgtcCTCTTTTTTCCT
+                    ACATGTGGAGCTTGCTCCAAAAGAAATGGAAGGTAAATGCTGGTATCTCCTCCAGCTCCT
+                    TCTCCCAGTGCAATGAGGGACACTTGAAGgcatggcaggggcaggggaaaCACACAGAGA
+                    GTGTGGCAGCTGAAGGTACAGCCCTGGCCTGGCCATTCTTTCTGTGGGGCCCCAAGAACG
+                    CTGGCAGACAACACGGAGAACTTGGTGGAATGTCAGAGACAGCCCACCCAAAgtgctcca
+                    tttcacagatgaggccaCTGAGCCTTCAGGACTGGGGGGTGCCTAGATTAGGCCACCCAG
+                    TGAGTCAAGGACTGAGCTGACATGGGCATCCAGGTGTCCCATTGTGGTCATCACCATGGC
+                    CTGCAAGGACCTCTTGTTCTGATATCTCTGATCTCAGTCTTTCCCACTGCCCCACCCCTC
+                    TCTCTTTAGCCTTAGAGATTTCAGCCCTTGAATATTTCACAAACACCACAGGCCTCTCAC
+                    ACCTCTGAGCTTTTCATGTTGTGGGGCCTCTCCATGGAATACCATCCTATATCCTACCTC
+                    CTTCTTCACTGCCTctgctccaggaagccttccctgattctcAGGCCAGGTCCAGTGCCT
+                    CCTCTGGGCATCCACAATCTCTTTATCACAGCTCTGATCACATCAGGTGGTAACAATGGA
+                    TGTGTCTGTTCTCCTTCCAAACTGCCATCTCTTTCAAGCCAGAGCCAGACACACAGCGGT
+                    GCTCAGAATGTTTGCATAATGAgtgcataaataaatgaatggtgaatgaatgaattctcc
+                    AGATGCACAAGTCTCCCAGCCTGTACATGGAATGCAGGTACTTGGAGAAATGAGGTGACC
+                    CCAGAAGATCAAGCCTTAGGAAAGCGGAGGTCATTCCCTTCCCCACTACCCCCAGTACTG
+                    GAGTCTCCAAAGTCCAAAGGGGACAGCTTCCATGTGAGCAGGGCCAGAGAGGTCCAATGT
+                    GCATTGTGAATTGACAGCCAGCCACACGGCTCTGCAGGATGAAGCTGCTTACCCCTTCTT
+                    GAATTTTTTCCCCTATTTATTCCCCACTGCCTCTGCTCTAGCTAGCCTCGTGTTTCTCAG
+                    ACTCTTGTCACTCATCCTGCGGTttttgctgttctctctgcctggaaagtCTTTCCCCAG
+                    ATTTGGGGCTTGTCTCCCCTCGATGTtgcctcctcagagaggcccccTGTGACCACTCCA
+                    ",
+                    ),
+                )))
+                .unwrap();
         }
         // Now we add n_thread dones, one for each thread. When the threads see this they know to close as there is no more data
         for _ in 0..self.n_threads {
