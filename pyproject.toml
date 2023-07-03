@@ -5,12 +5,18 @@ build-backend = "maturin"
 [project]
 name = "mappy-rs"
 requires-python = ">=3.8"
+readme = "README.md"
 classifiers = [
     "Programming Language :: Rust",
     "Programming Language :: Python :: Implementation :: CPython",
     "Programming Language :: Python :: Implementation :: PyPy",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
 ]
-version = "0.0.3"
+version = "0.0.4"
 license = {text = "BSD 3-Clause License"}
 description = "A multithreaded python wrapper for rust bindings of minimap2."
 authors = [
