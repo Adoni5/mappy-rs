@@ -3,7 +3,7 @@
 [![CI](https://github.com/Adoni5/mappy-rs/actions/workflows/check.yml/badge.svg)](https://github.com/Adoni5/mappy-rs/actions/workflows/check.yml)
 
 
-![A map with a crab on it](img/crab_map.webp)
+![A map with a crab on it](https://github.com/Adoni5/mappy-rs/blob/main/img/crab_map.webp)
 
 A multi-threaded minimap2 aligner for python. Built for [readfish](https://github.com/LooseLab/readfish/) compatibility.
 
@@ -42,7 +42,7 @@ import mappy_rs
 aligner = mappy_rs.Aligner("resources/test/test.mmi")
 ```
 
-The current iteration of `mappy-rs` serves as a drop in for `mappy`, implementing all the same methods. However if this is the use case, you may well be better off using `mappy`, as the extra level of Rust betwene your python and C++ may well add slighly slower performance.
+The current iteration of `mappy-rs` serves as a drop in for `mappy`, implementing all the same methods. However if this is the use case, you may well be better off using `mappy`, as the extra level of Rust between your python and C++ may well add slightly slower performance.
 
 ### Multithreading
 In order to use multi threading, one must first enable it.
@@ -56,7 +56,7 @@ aligner.enable_threading(10)
 
 Enabling threading makes the `map_batch` method available.
 This method requires a list or iterable of dictionaries, which can have any number of keys and depth, but **must** contain the key `seq` with a string value in the top-level dictionary.
-Currently, the maximum batch size tobe iterated in one call is 20000.
+Currently, the maximum batch size to be iterated in one call is 20000.
 
 For example:
 
