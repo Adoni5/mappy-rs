@@ -433,7 +433,7 @@ impl Aligner {
                 work_queue: Arc::new(ArrayQueue::<WorkQueue<(usize, String)>>::new(50000)),
                 results_queue: Arc::new(ArrayQueue::<WorkQueue<(Vec<Mapping>, usize)>>::new(50000)),
             };
-            al.setup_signal();
+            // al.setup_signal();
             return Ok(al);
         }
         Err(PyRuntimeError::new_err("Did not create or open an index"))
