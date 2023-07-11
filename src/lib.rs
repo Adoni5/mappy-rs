@@ -6,8 +6,8 @@
 
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
 use crossbeam::queue::ArrayQueue;
-use crossbeam::utils::Backoff;
 use fnv::FnvHashMap;
+use itertools::all;
 use pyo3::exceptions::{
     PyKeyError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
 };
@@ -17,7 +17,9 @@ use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::mem;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// Strand enum
 #[pyclass]
@@ -32,7 +34,7 @@ pub enum Strand {
 /// Enum containing results from multithreaded Alignment
 #[derive(Debug)]
 enum WorkQueue<T> {
-    /// Lemme see you work work wokr work, shorty sumthin sumthin
+    /// Lemme see you work work work work, shorty sumthin sumthin
     Work(T),
     /// The threads are finished
     Done,
@@ -283,15 +285,24 @@ impl Mapping {
 }
 
 /// Aligner struct, mimicking minimap2's python interface
-#[pyclass]
-#[derive(Clone)]
+#[pyclass(unsendable)]
+#[allow(clippy::type_complexity)]
+
 pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
     /// Number of mapping threads
     n_threads: usize,
+    /// thread handles
+    _handles: Arc<Mutex<Vec<std::thread::JoinHandle<()>>>>,
+    /// stop the threads
+    stop: Arc<Mutex<bool>>,
+    /// Work queue stores strings to map and ids to get the corresponding dict back
+    work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>>,
+    /// Results of the threads go here
+    results_queue: Arc<ArrayQueue<WorkQueue<(Vec<Mapping>, usize)>>>,
 }
-unsafe impl Send for Aligner {}
+// unsafe impl Send for Aligner {}
 
 #[pymethods]
 impl Aligner {
@@ -317,6 +328,8 @@ impl Aligner {
         seq: Option<String>,
         scoring: Option<&PyTuple>,
     ) -> PyResult<Self> {
+        // handle ctrl c signal to kill threads - development use only!
+        println!("{n_threads}");
         let mut mapopts = minimap2::MapOpt::default();
         let mut idxopts = minimap2::IdxOpt::default();
         unsafe { minimap2_sys::mm_set_opt(std::ptr::null(), &mut idxopts, &mut mapopts) };
@@ -406,8 +419,7 @@ impl Aligner {
                 // Idx index name
                 minimap2_sys::mm_idx_index_name(idx.assume_init());
             };
-
-            return Ok(Aligner {
+            let al = Aligner {
                 aligner: minimap2::Aligner {
                     mapopt: mapopts,
                     idxopt: idxopts,
@@ -416,7 +428,13 @@ impl Aligner {
                     idx_reader: Some(unsafe { *idx_reader }),
                 },
                 n_threads: 0,
-            });
+                _handles: Arc::new(Mutex::new(vec![])),
+                stop: Arc::new(Mutex::new(false)),
+                work_queue: Arc::new(ArrayQueue::<WorkQueue<(usize, String)>>::new(50000)),
+                results_queue: Arc::new(ArrayQueue::<WorkQueue<(Vec<Mapping>, usize)>>::new(50000)),
+            };
+            // al.setup_signal();
+            return Ok(al);
         }
         Err(PyRuntimeError::new_err("Did not create or open an index"))
     }
@@ -489,14 +507,33 @@ impl Aligner {
                         mapq: m.mapq,                              // u32,
                         is_primary: m.is_primary,                  // bool
                         cigar: a.cigar.unwrap_or_default(),        // Vec<(u32, u8)>
-                        NM: a.nm,
-                        MD: a.md,
-                        cs: a.cs,
+                        NM: a.nm,                                  // i32
+                        MD: a.md,                                  // Option<String>
+                        cs: a.cs,                                  // Option<String>
                     }
                 })
                 .collect()),
             Err(e) => Err(PyRuntimeError::new_err(e)),
         }
+    }
+
+    /// Map a single read, blocking
+    #[pyo3(signature = (_seq, seq2=None, _cs=false, _MD=false), text_signature = "(_seq, seq2=None, _cs=False, _MD=False)")]
+    #[allow(non_snake_case)]
+    fn map_no_op(
+        &self,
+        _seq: String,
+        seq2: Option<String>,
+        _cs: bool,
+        _MD: bool,
+    ) -> PyResult<Vec<Mapping>> {
+        // TODO: PyIterProtocol to map single reads and return as a generator
+        if let Some(_seq2) = seq2 {
+            return Err(PyNotImplementedError::new_err(
+                "Using `seq2` is not implemented",
+            ));
+        }
+        Ok(self.no_op_map())
     }
 
     ///  Enable multi threading on this mappy instance.
@@ -507,6 +544,98 @@ impl Aligner {
     #[pyo3(signature = (n_threads), text_signature = "(n_threads=8)")]
     fn enable_threading(&mut self, n_threads: usize) -> PyResult<()> {
         self.n_threads = n_threads;
+        let dones = Arc::new(Mutex::new(vec![false; n_threads]));
+        for i in 0..n_threads {
+            let _aligner = self.aligner.clone();
+            let stop = Arc::clone(&self.stop);
+            let wq = Arc::clone(&self.work_queue);
+            let rq = Arc::clone(&self.results_queue);
+            let thread_number = i;
+            let done_ref = Arc::clone(&dones);
+
+            // start the threads
+            std::thread::spawn(move || {
+                loop {
+                    // STOP SIGNAL RECEVIED SIGINT/SIGTERM
+                    if *stop.lock().unwrap() {
+                        break;
+                    }
+                    let wait_as_done = {
+                        let mut dr: std::sync::MutexGuard<'_, Vec<bool>> = done_ref.lock().unwrap();
+                        let done = *dr.get(thread_number).unwrap();
+                        let all_done = all(dr.iter(), |elt| *elt);
+                        if all_done {
+                            // everythread has sent a done, so set them all to not done again
+                            for b in dr.iter_mut() {
+                                *b = !*b;
+                            }
+                        }
+                        done & !all_done
+                    };
+                    // this thread has sent a done and not all other threads are fininshed
+                    if wait_as_done {
+                        std::thread::sleep(Duration::from_millis(1));
+                        continue;
+                    }
+                    match wq.pop() {
+                        None => std::thread::sleep(Duration::from_millis(10)),
+                        Some(work_item) => {
+                            match work_item {
+                                WorkQueue::Done => {
+                                    rq.push(WorkQueue::Done).unwrap();
+                                    {
+                                        done_ref.lock().unwrap()[thread_number] = true;
+                                    }
+                                }
+                                WorkQueue::Work((id_num, seq)) => {
+                                    match _aligner.map(
+                                        seq.as_bytes(),
+                                        true,
+                                        false,
+                                        Some(_aligner.mapopt.max_frag_len as usize),
+                                        None,
+                                    ) {
+                                        Ok(_mappings) => {
+                                            mem::drop(seq);
+                                            let mappings: Vec<Mapping> = _mappings
+                                                .into_iter()
+                                                .map(|m| {
+                                                    let a = m.alignment.unwrap();
+                                                    Mapping {
+                                                        query_start: m.query_start,                // i32,
+                                                        query_end: m.query_end, // i32,
+                                                        strand: Strand::from_mm2_strand(m.strand), // Strand,
+                                                        target_name: m.target_name.unwrap(), // String,
+                                                        target_len: m.target_len,            // i32,
+                                                        target_start: m.target_start,        // i32,
+                                                        target_end: m.target_end,            // i32,
+                                                        match_len: m.match_len,              // i32,
+                                                        block_len: m.block_len,              // i32,
+                                                        mapq: m.mapq,                        // u32,
+                                                        is_primary: m.is_primary,            // bool
+                                                        cigar: a.cigar.unwrap_or_default(), // Vec<(u32, u8)>
+                                                        NM: a.nm,
+                                                        MD: a.md,
+                                                        cs: a.cs,
+                                                    }
+                                                })
+                                                .collect();
+                                            rq.push(WorkQueue::Result((mappings, id_num))).unwrap();
+                                        }
+                                        Err(_) => {
+                                            eprintln!("Failed to map sequence in threaded implementation.")
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    println!("What is this doing in the work queue")
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
         Ok(())
     }
 
@@ -532,7 +661,6 @@ impl Aligner {
     fn k(&self) -> PyResult<i32> {
         Ok(self.aligner.idx.unwrap().k)
     }
-
     /// Get the w value form the index.
     #[getter]
     fn w(&self) -> PyResult<i32> {
@@ -547,6 +675,36 @@ impl Aligner {
 }
 
 impl Aligner {
+    /// Instead of calling out to the ALigner, return a predefined dummy mapping
+    pub fn no_op_map(&self) -> Vec<Mapping> {
+        vec![Mapping {
+            query_start: 0,                                             // i32,
+            query_end: 1000,                                            // i32,
+            strand: Strand::from_mm2_strand(minimap2::Strand::Forward), // Strand,
+            target_name: String::from("Hello"),                         // String,
+            target_len: 101010,                                         // i32,
+            target_start: 10,                                           // i32,
+            target_end: 1010,                                           // i32,
+            match_len: 1000,                                            // i32,
+            block_len: 1000,                                            // i32,
+            mapq: 60,                                                   // u32,
+            is_primary: true,                                           // bool
+            cigar: vec![],                                              // Vec<(u32, u8)>
+            NM: 0,
+            MD: None,
+            cs: Some(String::from("Cigar string")),
+        }]
+    }
+    /// Setup signal catching for ctrl c to stop threads
+    pub fn setup_signal(&self) {
+        let stop = Arc::clone(&self.stop);
+        ctrlc::set_handler(move || {
+            println!("Signal intercepted");
+            *stop.lock().unwrap() = true;
+            std::process::exit(0);
+        })
+        .expect("Failed to set signal listener");
+    }
     /// Private function
     /// Get a sequence or subsequence of a contig loaded into the index.
     pub fn _get_index_seq(&self, name: String, start: i32, mut end: i32) -> Result<String, &str> {
@@ -613,6 +771,7 @@ impl Aligner {
 
     /// Align a batch of reads provided in an iterator, using a threadpool with the number of threads specified by
     /// .enable_threading()
+    #[allow(clippy::type_complexity)]
     pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyAny) -> PyResult<()> {
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
@@ -630,61 +789,59 @@ impl Aligner {
                 ))
             }
         };
-        for _ in 0..self.n_threads {
-            let work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>> =
-                Arc::clone(&res.work_queue);
-            let results_tx = res.tx.clone();
-            let aligner = self.clone();
-            let counter = Arc::clone(&res._n_finished_threads);
-            let n_threads = res._n_threads;
-            std::thread::spawn(move || {
-                loop {
-                    // new backoff
-                    let backoff = Backoff::new();
-                    // pop returns None if the queue is empty, which is possible at the start as data hasn't been added below
-                    match work_queue.pop() {
-                        // We
-                        Some(worky) => match worky {
-                            WorkQueue::Done => {
-                                // This thread has finished
-                                // Lock the mutex and increment
-                                let mut num = counter.lock().unwrap();
-                                *num += 1;
-                                // ALL threads have finished
-                                if *num == n_threads {
-                                    results_tx.send(WorkQueue::Finished).unwrap();
-                                }
+        let results_queue: Arc<ArrayQueue<WorkQueue<(Vec<Mapping>, usize)>>> =
+            Arc::clone(&self.results_queue);
+        let results_tx = res.tx.clone();
+        let counter = Arc::clone(&res._n_finished_threads);
+        let n_threads = res._n_threads;
+        std::thread::spawn(move || {
+            loop {
+                //             // pop returns None if the queue is empty, which is possible at the start as data hasn't been added below
+                match results_queue.pop() {
+                    //                 // We
+                    Some(worky) => match worky {
+                        // each thread can only see one workqueue DONE
+                        WorkQueue::Done => {
+                            // This thread has finished
+                            // Lock the mutex and increment
+                            let mut num = counter.lock().unwrap();
+                            *num += 1;
+                            // println!("{num}");
+                            // ALL threads have finished
+                            if *num == n_threads {
+                                results_tx.send(WorkQueue::Finished).unwrap();
+                                // reset number of finshed threads
                                 break;
                             }
-                            WorkQueue::Work((id_num, seq)) => {
-                                let maps = aligner.map(seq, None, true, true).unwrap();
-                                match results_tx.send(WorkQueue::Result((maps, id_num))) {
-                                    Ok(()) => {}
-                                    Err(e) => {
-                                        eprintln!("Internal error returning data. {e}");
-                                    }
+                        }
+                        WorkQueue::Result(result) => {
+                            let id = result.1;
+                            match results_tx.send(WorkQueue::Result(result)) {
+                                Ok(()) => {}
+                                Err(e) => {
+                                    eprintln!("Internal error returning data. {e} {id}");
                                 }
                             }
-                            _ => {
-                                eprintln!("Wrong WorkQueue arm seen in worker thread.")
-                            }
-                        },
-                        // Todo Crossbeam backoff rather than continue
-                        None => {
-                            backoff.snooze();
                         }
+                        _ => {
+                            eprintln!("Wrong WorkQueue arm seen in worker thread.")
+                        }
+                    },
+                    // Todo Crossbeam backoff rather than continue
+                    None => {
+                        std::thread::sleep(Duration::from_millis(5));
                     }
-                    // (id_num, seq): (usize, String)
                 }
-            });
-        }
+                //             // (id_num, seq): (usize, String)
+            }
+        });
         let iter = match seqs.iter() {
             Ok(it) => it,
             _ => return Err(PyTypeError::new_err("Could not iterate batch")),
         };
-        let work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>> = Arc::clone(&res.work_queue);
-        for (id_num, py_dicts) in iter.enumerate() {
-            let py_dict = py_dicts?;
+        let work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>> = Arc::clone(&self.work_queue);
+        for (id_num, py_dict) in iter.enumerate() {
+            let py_dict = py_dict?;
             let data: HashMap<String, Py<PyAny>> = match py_dict.extract() {
                 Ok(x) => x,
                 _ => {
@@ -695,8 +852,8 @@ impl Aligner {
             };
             res.data.insert(id_num, data);
             let seq: String = match py_dict.get_item("seq") {
-                Ok(seq) => match seq.extract() {
-                    Ok(seq) => seq,
+                Ok(seq) => match seq.extract::<String>() {
+                    Ok(seq) => seq.clone(),
                     _ => return Err(PyValueError::new_err("`seq` must be a string")),
                 },
                 _ => {
@@ -705,13 +862,13 @@ impl Aligner {
                     ))
                 }
             };
-
             work_queue.push(WorkQueue::Work((id_num, seq))).unwrap();
         }
-        // Now we add 4 dones, one for each thread. When the threads see this they know to close as there is no more data
+        // Now we add n_thread dones, one for each thread. When the threads see this they know to close as there is no more data
         for _ in 0..self.n_threads {
             work_queue.push(WorkQueue::Done).unwrap();
         }
+
         Ok(())
     }
 }
@@ -738,8 +895,6 @@ pub struct AlignmentBatchResultIter {
     rx: Receiver<WorkQueue<(Vec<Mapping>, usize)>>,
     /// HashMap for caching sent data
     data: FnvHashMap<usize, HashMap<String, Py<PyAny>>>,
-    /// ArrayQueue for work
-    work_queue: Arc<ArrayQueue<WorkQueue<(usize, String)>>>,
     /// Number of threads, which checks against the number offinished threads
     _n_threads: usize,
     /// Number of finished threads, used to know when to close the receiver. Is unlocked in the worker threads.
@@ -764,7 +919,6 @@ impl AlignmentBatchResultIter {
             tx,
             rx,
             data: FnvHashMap::default(),
-            work_queue: Arc::new(ArrayQueue::<WorkQueue<(usize, String)>>::new(50000)),
             _n_threads: 0_usize,
             _n_finished_threads: Arc::new(Mutex::new(0_usize)),
         }
@@ -782,27 +936,23 @@ impl AlignmentBatchResultIter {
 
     /// Returns the next element in the Iterator.
     #[allow(clippy::type_complexity)]
-    fn __next__(
-        &mut self,
-    ) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &'static str> {
+    fn __next__(&mut self) -> IterNextOutput<(Vec<Mapping>, HashMap<String, Py<PyAny>>), &str> {
         let try_recv = self.rx.recv();
         match try_recv {
             Ok(work_queue_member) => match work_queue_member {
-                WorkQueue::Finished => {
-                    IterNextOutput::Return("Home you're finished, 'cause I am...")
-                }
+                WorkQueue::Finished => IterNextOutput::Return("Finished"),
                 WorkQueue::Result((mapping, id_num)) => {
                     let data = self.data.remove(&id_num).unwrap();
                     IterNextOutput::Yield((mapping, data))
                 }
                 _ => {
                     eprintln!("Received wrong variant as a Result");
-                    IterNextOutput::Return("Home you're finished, 'cause I have exploded...")
+                    IterNextOutput::Return("Wrong variant")
                 }
             },
             Err(RecvError) => {
                 eprintln!("Receiver Error");
-                IterNextOutput::Return("Home you're finished, 'cause I have exploded...")
+                IterNextOutput::Return("Receiver error - channel was closed")
             }
         }
     }

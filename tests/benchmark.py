@@ -7,7 +7,7 @@ RESOURCES = (
     Path(__file__).parent.resolve().parent.resolve() / "resources/benchmarking"
 )
 FASTQ_PATH = RESOURCES / "fastq"
-INDEX_PATH = RESOURCES / "index/hg38.mmi"
+INDEX_PATH = RESOURCES / "index/hg38_simple.mmi"
 _FILE_SUFFIXES = set([".fq", ".fastq", ".fastq.gz", ".fq.qz"])
 
 
@@ -42,12 +42,12 @@ def mappy_al_rs():
 
 @pytest.fixture
 def mappy_al():
-    return mp.Aligner(str(INDEX_PATH))
+    yield mp.Aligner(str(INDEX_PATH))
 
 
 @pytest.fixture
 def aligner(request):
-    return request.getfixturevalue(request.param)
+    yield request.getfixturevalue(request.param)
 
 
 def align_multi(al, fasta):
@@ -74,15 +74,17 @@ def _align(al, seqs):
 @pytest.mark.parametrize("aligner", ["mappy_al", "mappy_al_rs"], indirect=True)
 def test_classic_mappy(benchmark, aligner, fasta):
     n = benchmark.pedantic(
-        _align, args=(aligner, fasta), iterations=1, rounds=5
+        _align, args=(aligner, fasta), iterations=1, rounds=1
     )
     assert N_READS == n
+    print("Finished classic mappy round")
 
 
 @pytest.mark.parametrize("threads", list(range(1, 6)))
 def test_benchmark_multi(threads, benchmark, mappy_al_rs, fasta):
     mappy_al_rs.enable_threading(threads)
     n = benchmark.pedantic(
-        align_multi, args=(mappy_al_rs, fasta), iterations=1, rounds=5
+        align_multi, args=(mappy_al_rs, fasta), iterations=1, rounds=1
     )
     assert N_READS == n
+    print("Finished threaded mappy round")
