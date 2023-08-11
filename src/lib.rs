@@ -17,9 +17,9 @@ use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
-use std::mem;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+use std::{mem, thread};
 
 /// Strand enum
 #[pyclass]
@@ -32,7 +32,7 @@ pub enum Strand {
 }
 
 /// Enum containing results from multithreaded Alignment
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum WorkQueue<T> {
     /// Lemme see you work work work work, shorty sumthin sumthin
     Work(T),
@@ -328,8 +328,6 @@ impl Aligner {
         seq: Option<String>,
         scoring: Option<&PyTuple>,
     ) -> PyResult<Self> {
-        // handle ctrl c signal to kill threads - development use only!
-        println!("{n_threads}");
         let mut mapopts = minimap2::MapOpt::default();
         let mut idxopts = minimap2::IdxOpt::default();
         unsafe { minimap2_sys::mm_set_opt(std::ptr::null(), &mut idxopts, &mut mapopts) };
@@ -639,14 +637,14 @@ impl Aligner {
         Ok(())
     }
 
-    /// Align a sequence with optional Metadata tuple. If provided, the tuple MUST be in the shape of (channel_number: int, read_id: str)
-    fn map_batch(&self, seqs: &PyAny) -> PyResult<AlignmentBatchResultIter> {
+    /// Align a sequence Optionally back off if we fail to add the sequence to the queue, in the case that the work queue is full.
+    #[pyo3(signature = (seqs, back_off=true))]
+    fn map_batch(&self, seqs: &PyAny, back_off: bool) -> PyResult<AlignmentBatchResultIter> {
         let mut res = AlignmentBatchResultIter::new();
         // Set the number of threads
         res.set_n_threads(self.n_threads);
         // do the heavy work
-        self._map_batch(&mut res, seqs)?;
-        // let alignment
+        self._map_batch(&mut res, seqs, back_off)?;
         // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
         Ok(res)
     }
@@ -772,7 +770,12 @@ impl Aligner {
     /// Align a batch of reads provided in an iterator, using a threadpool with the number of threads specified by
     /// .enable_threading()
     #[allow(clippy::type_complexity)]
-    pub fn _map_batch(&self, res: &mut AlignmentBatchResultIter, seqs: &PyAny) -> PyResult<()> {
+    pub fn _map_batch(
+        &self,
+        res: &mut AlignmentBatchResultIter,
+        seqs: &PyAny,
+        back_off: bool,
+    ) -> PyResult<()> {
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
                 "Multi threading not enabled on this instance. Please call `.enable_threading()`",
@@ -862,7 +865,30 @@ impl Aligner {
                     ))
                 }
             };
-            work_queue.push(WorkQueue::Work((id_num, seq))).unwrap();
+            match work_queue.push(WorkQueue::Work((id_num, seq))) {
+                Ok(()) => {}
+                Err(e) => {
+                    if back_off {
+                        let mut attempts = 0;
+                        let mut sleep_duration = Duration::from_millis(100); // Initial sleep duration (in milliseconds)
+
+                        while attempts < 6 {
+                            if work_queue.push(e.clone()).is_ok() {
+                                break; // Operation succeeded
+                            }
+
+                            attempts += 1;
+                            thread::sleep(sleep_duration);
+
+                            // Increase the sleep duration exponentially
+                            sleep_duration *= 2;
+                        }
+                        eprintln!("Internal error adding data to work queue. {e:#?} {id_num}");
+                    } else {
+                        eprintln!("Internal error adding data to work queue. {e:#?} {id_num}");
+                    }
+                }
+            }
         }
         // Now we add n_thread dones, one for each thread. When the threads see this they know to close as there is no more data
         for _ in 0..self.n_threads {
