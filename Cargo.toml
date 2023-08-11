@@ -20,7 +20,7 @@ name = "mappy_rs"
 
 [dependencies]
 libc = "0.2"
-pyo3 = { version = "0.18" }
+pyo3 = { version = "0.19" }
 minimap2-sys = { version = "0.1.14", features = ["simde"] }
 crossbeam = "0.8.2"
 fnv = "1.0.7"
