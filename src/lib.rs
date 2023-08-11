@@ -329,7 +329,6 @@ impl Aligner {
         scoring: Option<&PyTuple>,
     ) -> PyResult<Self> {
         // handle ctrl c signal to kill threads - development use only!
-        println!("{n_threads}");
         let mut mapopts = minimap2::MapOpt::default();
         let mut idxopts = minimap2::IdxOpt::default();
         unsafe { minimap2_sys::mm_set_opt(std::ptr::null(), &mut idxopts, &mut mapopts) };
