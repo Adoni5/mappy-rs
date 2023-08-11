@@ -17,6 +17,7 @@ use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::mem;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{mem, thread};
@@ -328,7 +329,6 @@ impl Aligner {
         seq: Option<String>,
         scoring: Option<&PyTuple>,
     ) -> PyResult<Self> {
-        // handle ctrl c signal to kill threads - development use only!
         let mut mapopts = minimap2::MapOpt::default();
         let mut idxopts = minimap2::IdxOpt::default();
         unsafe { minimap2_sys::mm_set_opt(std::ptr::null(), &mut idxopts, &mut mapopts) };
@@ -777,6 +777,7 @@ impl Aligner {
         seqs: &PyAny,
         back_off: bool,
     ) -> PyResult<()> {
+
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
                 "Multi threading not enabled on this instance. Please call `.enable_threading()`",
