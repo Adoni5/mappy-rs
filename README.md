@@ -100,3 +100,11 @@ test_benchmark_multi[2]       | 43.2616 (1.61)| 86.3859 (2.87) | 53.8572 (1.92)|
 test_classic_mappy[mappy_al]  | 78.5566 (2.92)| 82.8876 (2.75) | 79.6177 (2.84)| 1.8343 (1.45)| 78.8350 (2.83)| 1.1938 (1.0) | 1;1          | 0.0126 (0.35) | 5             | 1
 test_classic_mappy[mappy_al_rs]| 83.7239 (3.11)| 87.9675 (2.92) | 85.4424 (3.04)| 1.6806 (1.33)| 85.6335 (3.07)| 2.3310 (1.95)| 2;0          | 0.0117 (0.33) | 5             | 1
 test_benchmark_multi[1]       | 84.8418 (3.16)| 94.0907 (3.13) | 86.7404 (3.09)| 4.1096 (3.26)| 84.8749 (3.04)| 2.4310 (2.04)| 1;1          | 0.0115 (0.32) | 5             | 1
+
+
+# Changelog
+
+## 0.0.6
+- Lowered backoff time for `map_batch` to 50 milliseconds, with 6 attempts. Each attempt will double the previous back off time.
+- Improved error handling for `map_batch`, now will raise a `RuntimeError` if the backoff time is exceeded. Also prevented logging `Internal error returning data, the receiver iterator has finished. sending on a disconnected channel 2870` to stderr excessively.
+- Added tests for mapping more than 50000 reads, using `back_off=True` and `back_off=False`
