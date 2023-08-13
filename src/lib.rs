@@ -822,7 +822,8 @@ impl Aligner {
                             match results_tx.send(WorkQueue::Result(result)) {
                                 Ok(()) => {}
                                 Err(e) => {
-                                    eprintln!("Internal error returning data. {e} {id}");
+                                    eprintln!("Internal error returning data, the receiver iterator has finished. {e} {id}");
+                                    break;
                                 }
                             }
                         }
@@ -870,9 +871,10 @@ impl Aligner {
                 Err(e) => {
                     if back_off {
                         let mut attempts = 0;
-                        let mut sleep_duration = Duration::from_millis(100); // Initial sleep duration (in milliseconds)
+                        let max_attempts = 6;
+                        let mut sleep_duration = Duration::from_millis(50); // Initial sleep duration (in milliseconds)
 
-                        while attempts < 6 {
+                        while attempts < max_attempts {
                             if work_queue.push(e.clone()).is_ok() {
                                 break; // Operation succeeded
                             }
@@ -883,9 +885,16 @@ impl Aligner {
                             // Increase the sleep duration exponentially
                             sleep_duration *= 2;
                         }
-                        eprintln!("Internal error adding data to work queue. {e:#?} {id_num}");
+                        if attempts == 6 {
+                            eprintln!("Internal error adding data to work queue, with backoff. {e:#?}, {id_num}, Attempts: {attempts}");
+                        }
                     } else {
-                        eprintln!("Internal error adding data to work queue. {e:#?} {id_num}");
+                        eprintln!("Internal error adding data to work queue, without backoff. {e:#?} {id_num}");
+                        return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                            "Internal error adding data to work queue, without backoff. {e:#?} {id_num}. Is your fastq batch larger than 50000? Perhaps try `map_batch` with back_off=True?",
+                            e = e,
+                            id_num = id_num
+                        )));
                     }
                 }
             }
