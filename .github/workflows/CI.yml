@@ -39,7 +39,7 @@ jobs:
       - name: Install built wheel
         if: matrix.target == 'x86_64'
         run: |
-          pip install dissimilar --no-index --find-links dist --force-reinstall
+          pip install mappy-rs  --no-index --find-links dist --force-reinstall
           pip install pytest
           pytest -sv
       - name: Upload wheels
