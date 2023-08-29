@@ -1,11 +1,11 @@
 [package]
 name = "mappy-rs"
-version = "0.0.6"
+version = "0.0.7"
 edition = "2021"
 authors = ["Rory Munro <roryjmunro1@gmail.com>"]
 license = "MIT OR Apache-2.0"
 description = "Python Bindings to multithreaded rust minimap2"
-repository = "https://github.com/alexomics/mm2_rs"
+repository = "https://github.com/adoni5/mappy-rs"
 categories = ["science"]
 keywords = ["bioinformatics", "fasta", "alignment", "fastq"]
 exclude = [
@@ -26,7 +26,7 @@ crossbeam = "0.8.2"
 fnv = "1.0.7"
 ctrlc = {version = "3.4.0", features = ["termination"] }
 itertools = "0.10.5"
-minimap2 = {version = "0.1.14", features = ["simde"] }
+minimap2 = {version = "0.1.15+minimap2.2.26", features = ["simde"] }
 
 [features]
 extension-module = ["pyo3/extension-module"]
