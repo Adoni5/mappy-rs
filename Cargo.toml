@@ -21,11 +21,12 @@ name = "mappy_rs"
 [dependencies]
 libc = "0.2"
 pyo3 = { version = "0.19" }
+minimap2-sys = { version = "0.1.15+minimap2.2.26", features = ["simde"] }
 crossbeam = "0.8.2"
 fnv = "1.0.7"
 ctrlc = {version = "3.4.0", features = ["termination"] }
 itertools = "0.10.5"
-minimap2 = {version = "0.1.15+minimap2.2.26", features = ["simde"] }
+minimap2 = {version = "0.1.15+minimap2.2.26" }
 
 [features]
 extension-module = ["pyo3/extension-module"]
