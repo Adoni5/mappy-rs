@@ -33,7 +33,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -i 3.8 3.9 3.10 3.11 pypy3.8 pypy3.9 pypy3.10 pypy3.11
+          args: --release --out dist -i 3.8 3.9 3.10 3.11 pypy3.8 pypy3.9 pypy3.10
           sccache: 'true'
           manylinux: auto
       - name: Install built wheel
@@ -49,7 +49,7 @@ jobs:
           path: dist
 
   macos:
-    runs-on: macos-latest
+    runs-on: macos-13
     strategy:
       matrix:
         target: [x86_64, aarch64]
@@ -62,9 +62,12 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist -i 3.8 3.9 3.10 3.11
+          args: --release --out dist -i 3.8 3.9 3.10 3.11 pypy3.8 pypy3.9 pypy3.10
           sccache: 'true'
+        env:
+          MACOSX_DEPLOYMENT_TARGET: 12
       - name: Test built wheels
+        if: matrix.target == 'x86_64'
         run: |
           pip install mappy-rs --no-index --find-links dist --force-reinstall
           pip install pytest
