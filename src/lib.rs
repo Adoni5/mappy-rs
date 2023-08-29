@@ -333,9 +333,7 @@ impl Aligner {
         unsafe { minimap2_sys::mm_set_opt(std::ptr::null(), &mut idxopts, &mut mapopts) };
         if let Some(preset) = preset {
             let _preset = std::ffi::CString::new(preset).unwrap();
-            unsafe {
-                minimap2_sys::mm_set_opt(_preset.as_ptr() as *const i8, &mut idxopts, &mut mapopts)
-            };
+            unsafe { minimap2_sys::mm_set_opt(_preset.as_ptr(), &mut idxopts, &mut mapopts) };
         }
         // For 'drop-in' mappy compatibility we should add the flag 4
         mapopts.flag |= 4;
