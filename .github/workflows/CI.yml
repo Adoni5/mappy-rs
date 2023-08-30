@@ -48,6 +48,30 @@ jobs:
           pip install mappy-rs  --no-index --find-links dist --force-reinstall
           pip install pytest
           pytest -sv
+      - uses: uraimo/run-on-arch-action@v2.5.1
+        name: install & test
+        if: matrix.target != 'x86_64'
+        with:
+          arch: ${{ matrix.target }}
+          githubToken: ${{ github.token }}
+          install: |
+            set -x
+            if command -v apt-get &> /dev/null; then
+              echo "installing python & pip with apt-get..."
+              apt-get update
+              apt-get install -y --no-install-recommends python3 python3-pip python3-venv
+            else
+              echo "installing python & pip with apk..."
+              apk update
+              apk add python3 py3-pip
+            fi
+          run: |
+            set -x
+            python3 -m venv venv
+            source venv/bin/activate
+            python3 -m pip install mappy-rs  --no-index --find-links dist --force-reinstall
+            python3 -m pip install pytest
+            python3 -m pytest -sv
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
