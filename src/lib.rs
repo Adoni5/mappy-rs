@@ -714,7 +714,10 @@ impl Aligner {
         }
         let ref_seq_id: i32 = unsafe {
             //  conditionally compile using the correct pointer type (u8 or i8) for the platform and architecture
-            #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+            #[cfg(any(
+                all(target_arch = "aarch64", target_os = "linux"),
+                all(target_arch = "arm", target_os = "linux")
+            ))]
             {
                 minimap2_sys::mm_idx_name2id(
                     self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
