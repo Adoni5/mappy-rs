@@ -90,7 +90,8 @@ jobs:
             else
               echo "installing python & pip with apk..."
               apk update
-              apk add python3 py3-pip
+              apk add python3 py3-pip maturin
+
             fi
           run: |
             set -x
