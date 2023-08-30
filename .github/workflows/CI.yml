@@ -26,6 +26,12 @@ jobs:
         target: [x86_64]
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
@@ -55,6 +61,12 @@ jobs:
         target: [x86_64, aarch64]
     steps:
       - uses: actions/checkout@v3
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: actions/setup-python@v4
         with:
           python-version: '3.11'
