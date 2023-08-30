@@ -713,13 +713,31 @@ impl Aligner {
             return Err("No sequence in this index");
         }
         let ref_seq_id: i32 = unsafe {
-            minimap2_sys::mm_idx_name2id(
-                self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
-                std::ffi::CString::new(name)
-                    .unwrap()
-                    .as_bytes_with_nul()
-                    .as_ptr() as *const i8,
-            )
+            //  conditionally compile using the correct pointer type (u8 or i8) for the platform and architecture
+            #[cfg(all(target_arch = "aarch64", target_os = "linux"))]
+            {
+                minimap2_sys::mm_idx_name2id(
+                    self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
+                    std::ffi::CString::new(name)
+                        .unwrap()
+                        .as_bytes_with_nul()
+                        .as_ptr() as *const u8,
+                )
+            }
+            #[cfg(any(
+                all(target_arch = "aarch64", target_os = "macos"),
+                all(target_arch = "x86_64", target_os = "linux"),
+                all(target_arch = "x86_64", target_os = "macos")
+            ))]
+            {
+                minimap2_sys::mm_idx_name2id(
+                    self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
+                    std::ffi::CString::new(name)
+                        .unwrap()
+                        .as_bytes_with_nul()
+                        .as_ptr() as *const i8,
+                )
+            }
         };
         if (ref_seq_id < 0) | (ref_seq_id as u32 >= self.aligner.idx.unwrap().n_seq) {
             return Err("Could not find reference in index");
