@@ -15,15 +15,13 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
 
 jobs:
   linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, "aarch64"]
+        target: [x86_64, "aarch64", "armv7"]
     steps:
       - uses: actions/checkout@v3
         with:
