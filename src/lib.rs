@@ -16,7 +16,7 @@ use pyo3::pyclass::IterNextOutput;
 use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{mem, thread};
@@ -670,6 +670,85 @@ impl Aligner {
     }
 }
 
+/// Pushes an item onto a `crossbeam::queue::ArrayQueue` with optional backoff support.
+///
+/// The function tries to push an item `T` onto a given queue. If the push operation fails,
+/// it will automatically retry the operation up to `max_attempts` times if `back_off` is `true`.
+///
+/// # Parameters
+/// * `work_queue`: Reference to the `ArrayQueue<T>` to push the item onto.
+/// * `item`: The item to be pushed onto the queue.
+/// * `back_off`: A boolean flag that, when `true`, will engage a backoff mechanism on failure.
+/// * `id_num`: An identifier number for logging purposes.
+///
+/// # Examples
+/// ```rust,ignore
+/// use crossbeam::queue::ArrayQueue;
+/// use pyo3::prelude::*;
+///
+/// fn main() -> PyResult<()> {
+///     let queue = ArrayQueue::new(100);
+///     let item = "my_item";
+///     let back_off = true;
+///     let id_num = 42;
+///
+///     push_with_backoff(&queue, item, back_off, id_num)?;
+///     Ok(())
+/// }
+/// ```
+///
+/// # Returns
+/// * `Ok(())` if the push operation is successful or `Err(PyErr)` otherwise.
+///
+/// # Panics
+/// This function will not panic.
+///
+/// # Errors
+/// Returns a `PyErr` under the following conditions:
+/// * If the queue is full and `back_off` is `false`
+/// * If the queue remains full after `max_attempts` with `back_off` set to `true`
+///
+fn push_with_backoff<T: Clone + Debug>(
+    work_queue: &crossbeam::queue::ArrayQueue<T>,
+    item: T,
+    back_off: bool,
+    id_num: usize,
+) -> PyResult<()> {
+    match work_queue.push(item) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if back_off {
+                let mut attempts = 0;
+                /// Maximum number of attempts to push an item onto the queue.
+                const MAX_ATTEMPTS: usize = 6;
+                let mut sleep_duration = Duration::from_millis(50);
+
+                while attempts < MAX_ATTEMPTS {
+                    if work_queue.push(e.clone()).is_ok() {
+                        return Ok(());
+                    }
+
+                    attempts += 1;
+                    thread::sleep(sleep_duration);
+                    sleep_duration *= 2;
+                }
+
+                eprintln!("Internal error adding data to work queue, with backoff. {e:#?}, {id_num}, Attempts: {attempts}");
+            } else {
+                eprintln!(
+                    "Internal error adding data to work queue, without backoff. {e:#?} {id_num}"
+                );
+                return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                    "Internal error adding data to work queue, without backoff. {e:#?} {id_num}. Is your fastq batch larger than 50000? Perhaps try `map_batch` with back_off=True?",
+                    e = e,
+                    id_num = id_num
+                )));
+            }
+            Ok(())
+        }
+    }
+}
+
 impl Aligner {
     /// Instead of calling out to the ALigner, return a predefined dummy mapping
     pub fn no_op_map(&self) -> Vec<Mapping> {
@@ -885,42 +964,16 @@ impl Aligner {
                     ))
                 }
             };
-            match work_queue.push(WorkQueue::Work((id_num, seq))) {
-                Ok(()) => {}
-                Err(e) => {
-                    if back_off {
-                        let mut attempts = 0;
-                        let max_attempts = 6;
-                        let mut sleep_duration = Duration::from_millis(50); // Initial sleep duration (in milliseconds)
-
-                        while attempts < max_attempts {
-                            if work_queue.push(e.clone()).is_ok() {
-                                break; // Operation succeeded
-                            }
-
-                            attempts += 1;
-                            thread::sleep(sleep_duration);
-
-                            // Increase the sleep duration exponentially
-                            sleep_duration *= 2;
-                        }
-                        if attempts == 6 {
-                            eprintln!("Internal error adding data to work queue, with backoff. {e:#?}, {id_num}, Attempts: {attempts}");
-                        }
-                    } else {
-                        eprintln!("Internal error adding data to work queue, without backoff. {e:#?} {id_num}");
-                        return Err(PyErr::new::<PyRuntimeError, _>(format!(
-                            "Internal error adding data to work queue, without backoff. {e:#?} {id_num}. Is your fastq batch larger than 50000? Perhaps try `map_batch` with back_off=True?",
-                            e = e,
-                            id_num = id_num
-                        )));
-                    }
-                }
-            }
+            push_with_backoff(
+                &work_queue,
+                WorkQueue::Work((id_num, seq)),
+                back_off,
+                id_num,
+            )?;
         }
         // Now we add n_thread dones, one for each thread. When the threads see this they know to close as there is no more data
         for _ in 0..self.n_threads {
-            work_queue.push(WorkQueue::Done).unwrap();
+            push_with_backoff(&work_queue, WorkQueue::Done, back_off, 0)?;
         }
 
         Ok(())
