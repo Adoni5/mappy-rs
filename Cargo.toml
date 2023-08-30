@@ -21,13 +21,12 @@ name = "mappy_rs"
 [dependencies]
 libc = "0.2"
 pyo3 = { version = "0.19" }
-minimap2-sys = { git = "https://github.com/Adoni5/minimap2-sys", branch = "mainy", features = ["simde"]}
 crossbeam = "0.8.2"
 fnv = "1.0.7"
 ctrlc = {version = "3.4.0", features = ["termination"] }
 itertools = "0.10.5"
-minimap2 = {git = "https://github.com/Adoni5/minimap2-rs/", branch = "feature/linux_aarch" }
-
+minimap2-sys = { path = "./minimap2-rs/minimap2-sys", features = ["simde"] }
+minimap2 = { path = "./minimap2-rs", features = ["simde"] }
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["extension-module"]
