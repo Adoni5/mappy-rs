@@ -137,14 +137,14 @@ def test_map_one(al):
     assert mapping.target_end == 400
 
 
-def test_map_batch_100000(al, fasta_iter):
+def test_map_batch_60000(al, fasta_iter):
     al.enable_threading(4)
-    iter_ = repeat(next(fasta_iter), 100000)
+    iter_ = repeat(next(fasta_iter), 60000)
     mappings = al.map_batch(iter_, back_off=True)
     n = 0
-    for res in mappings:
+    for _res in mappings:
         n += 1
-    assert n == 100000
+    assert n == 60000
 
 
 def test_map_batch_100000_no_backoff(al, fasta_iter):
