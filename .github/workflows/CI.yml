@@ -54,7 +54,7 @@ jobs:
 
   test-builds-arch:
     name: test build on ${{ matrix.target }}-${{ matrix.distro }}
-    needs: [build]
+    needs: [linux]
     runs-on: ubuntu-latest
 
     strategy:
