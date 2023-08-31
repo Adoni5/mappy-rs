@@ -22,11 +22,12 @@ jobs:
     strategy:
       matrix:
         target: [x86_64, "aarch64", "armv7"]
-        include:
-          - target: x86_64
+        manylinux: ["musllinux_1_1", "auto"]
+        exclude:
+          # this fails
+          - target: armv7
             manylinux: musllinux_1_1
-          - target: aarch64
-            manylinux: musllinux_1_1
+
     steps:
       - uses: actions/checkout@v3
         with:
