@@ -102,7 +102,7 @@ jobs:
     needs: ["cargo-test", "python-test"]
     strategy:
       matrix:
-        msrv: ["1.63.0", "1.64.0"]
+        msrv: ["1.65.0", "1.66.1"]
     name: "ubuntu / ${{ matrix.msrv }}"
     steps:
       - uses: "actions/checkout@v4"
