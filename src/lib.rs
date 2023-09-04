@@ -636,13 +636,19 @@ impl Aligner {
     }
 
     /// Align a sequence Optionally back off if we fail to add the sequence to the queue, in the case that the work queue is full.
-    #[pyo3(signature = (seqs, back_off=true))]
-    fn map_batch(&self, seqs: &PyAny, back_off: bool) -> PyResult<AlignmentBatchResultIter> {
+    /// This function will block until the sequence has been added to the queue. If max_attempts is None and back_off is true, there is no (effective) limit to the number of attempts.
+    #[pyo3(signature = (seqs, back_off=true, max_attempts=6))]
+    fn map_batch(
+        &self,
+        seqs: &PyAny,
+        back_off: bool,
+        max_attempts: Option<usize>,
+    ) -> PyResult<AlignmentBatchResultIter> {
         let mut res = AlignmentBatchResultIter::new();
         // Set the number of threads
         res.set_n_threads(self.n_threads);
         // do the heavy work
-        self._map_batch(&mut res, seqs, back_off)?;
+        self._map_batch(&mut res, seqs, back_off, max_attempts)?;
         // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
         Ok(res)
     }
@@ -680,6 +686,7 @@ impl Aligner {
 /// * `item`: The item to be pushed onto the queue.
 /// * `back_off`: A boolean flag that, when `true`, will engage a backoff mechanism on failure.
 /// * `id_num`: An identifier number for logging purposes.
+/// * `max_attempts`: The maximum number of attempts to push an item onto the queue. Defaults to 6, if None.
 ///
 /// # Examples
 /// ```rust,ignore
@@ -692,7 +699,7 @@ impl Aligner {
 ///     let back_off = true;
 ///     let id_num = 42;
 ///
-///     push_with_backoff(&queue, item, back_off, id_num)?;
+///     push_with_backoff(&queue, item, back_off, id_num, usize::MAX)?;
 ///     Ok(())
 /// }
 /// ```
@@ -713,24 +720,24 @@ fn push_with_backoff<T: Clone + Debug>(
     item: T,
     back_off: bool,
     id_num: usize,
+    max_attempts: Option<usize>,
 ) -> PyResult<()> {
     match work_queue.push(item) {
         Ok(()) => Ok(()),
         Err(e) => {
             if back_off {
                 let mut attempts = 0;
-                /// Maximum number of attempts to push an item onto the queue.
-                const MAX_ATTEMPTS: usize = 6;
-                let mut sleep_duration = Duration::from_millis(50);
+                let max_attempts = max_attempts.unwrap_or(usize::MAX);
+                let sleep_duration = Duration::from_millis(50);
 
-                while attempts < MAX_ATTEMPTS {
+                while attempts < max_attempts {
                     if work_queue.push(e.clone()).is_ok() {
                         return Ok(());
                     }
 
                     attempts += 1;
                     thread::sleep(sleep_duration);
-                    sleep_duration *= 2;
+                    // sleep_duration *= 2;
                 }
 
                 eprintln!("Internal error adding data to work queue, with backoff. {e:#?}, {id_num}, Attempts: {attempts}");
@@ -873,6 +880,7 @@ impl Aligner {
         res: &mut AlignmentBatchResultIter,
         seqs: &PyAny,
         back_off: bool,
+        max_attempts: Option<usize>,
     ) -> PyResult<()> {
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
@@ -969,11 +977,12 @@ impl Aligner {
                 WorkQueue::Work((id_num, seq)),
                 back_off,
                 id_num,
+                max_attempts,
             )?;
         }
         // Now we add n_thread dones, one for each thread. When the threads see this they know to close as there is no more data
         for _ in 0..self.n_threads {
-            push_with_backoff(&work_queue, WorkQueue::Done, back_off, 0)?;
+            push_with_backoff(&work_queue, WorkQueue::Done, back_off, 0, max_attempts)?;
         }
 
         Ok(())
