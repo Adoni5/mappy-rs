@@ -35,7 +35,7 @@ jobs:
             target: armv7-unknown-linux-musleabihf
             manylinux: musllinux_1_2
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive' # Fetch Git submodules recursively
 
@@ -88,7 +88,7 @@ jobs:
         distro: ['ubuntu22.04', 'alpine_latest']
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: get dist artifacts
         uses: actions/download-artifact@v3
@@ -126,7 +126,7 @@ jobs:
       matrix:
         target: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive' # Fetch Git submodules recursively
 
@@ -157,7 +157,7 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: 'recursive' # Fetch Git submodules recursively
 
