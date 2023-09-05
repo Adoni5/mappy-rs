@@ -107,7 +107,7 @@ test_benchmark_multi[1]       | 84.8418 (3.16)| 94.0907 (3.13) | 86.7404 (3.09)|
 - Updated `map_batch` - now has a max attempts parameter, which defaults to 6. If set to `None`, there is no limit to the number of attempts to add a fastq to the mapping batch.
 
 ## 0.0.7
-- Added wheel builds for aarch64 linux and MacOS, and armv7 in the CI/yml. 
+- Added wheel builds for aarch64 linux and MacOS, and armv7 in the CI/yml.
 
 ## 0.0.6
 - Lowered backoff time for `map_batch` to 50 milliseconds, with 6 attempts. Each attempt will double the previous back off time.
