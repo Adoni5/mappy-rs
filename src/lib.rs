@@ -638,6 +638,7 @@ impl Aligner {
     /// Align a sequence Optionally back off if we fail to add the sequence to the queue, in the case that the work queue is full.
     /// This function will block until the sequence has been added to the queue. If max_attempts is None and back_off is true, there is no (effective) limit to the number of attempts.
     #[pyo3(signature = (seqs, back_off=true, max_attempts=6))]
+    #[args(max_attempts = "6")]
     fn map_batch(
         &self,
         seqs: &PyAny,
