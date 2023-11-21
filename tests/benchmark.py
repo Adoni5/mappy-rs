@@ -112,7 +112,7 @@ def test_aligner_with_threads(benchmark, aligner, threads, fasta):
     n = benchmark.pedantic(
         align_multi if threads else _align,
         args=(aligner, fasta),
-        iterations=1,
-        rounds=1,
+        iterations=5,
+        rounds=5,
     )
     assert N_READS == n
