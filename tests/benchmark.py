@@ -3,6 +3,7 @@ import mappy as mp
 import pytest
 from pathlib import Path
 import gc
+from itertools import cycle
 
 RESOURCES = (
     Path(__file__).parent.resolve().parent.resolve() / "resources/benchmarking"
@@ -99,10 +100,10 @@ def _align(al, seqs):
     [
         ("mappy_al", None),
         ("mappy_al_rs", None),
-        ("mappy_al_rs", 1),
-        ("mappy_al_rs", 2),
-        ("mappy_al_rs", 3),
-    ],  # Add more thread counts as needed
+    ]
+    + list(
+        zip(cycle(("mappy_al_rs",)), range(1, 17))
+    ),  # Add more thread counts as needed
     indirect=["aligner"],
 )
 def test_aligner_with_threads(benchmark, aligner, threads, fasta):
