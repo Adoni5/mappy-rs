@@ -3,11 +3,13 @@
 //! Designed for use with readfish https://github.com/LooseLab/readfish/
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
-
+#![allow(forgetting_copy_types)]
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
 use crossbeam::queue::ArrayQueue;
 use fnv::FnvHashMap;
 use itertools::all;
+use minimap2_sys::mm_idx_destroy;
+
 use pyo3::exceptions::{
     PyKeyError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
 };
@@ -16,7 +18,8 @@ use pyo3::pyclass::IterNextOutput;
 use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{mem, thread};
@@ -287,7 +290,6 @@ impl Mapping {
 /// Aligner struct, mimicking minimap2's python interface
 #[pyclass(unsendable)]
 #[allow(clippy::type_complexity)]
-
 pub struct Aligner {
     /// Inner minimap2::Aligner
     pub aligner: minimap2::Aligner,
@@ -303,7 +305,22 @@ pub struct Aligner {
     results_queue: Arc<ArrayQueue<WorkQueue<(Vec<Mapping>, usize)>>>,
 }
 // unsafe impl Send for Aligner {}
-
+impl Drop for Aligner {
+    fn drop(&mut self) {
+        {
+            let mut stop = self.stop.lock().unwrap();
+            *stop = true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+        if self.aligner.idx.is_some() {
+            let c_ptr = self.aligner.idx.as_mut().unwrap().as_mut_ptr();
+            unsafe {
+                mm_idx_destroy(c_ptr);
+            }
+            self.aligner.idx = None;
+        }
+    }
+}
 #[pymethods]
 impl Aligner {
     /// Initialise a new Py Class Aligner
@@ -415,12 +432,16 @@ impl Aligner {
                 // Idx index name
                 minimap2_sys::mm_idx_index_name(idx.assume_init());
             };
+            let idx_raw = unsafe { idx.assume_init() };
+            // Safety check before wrapping the raw pointer
+            let idx_safe = NonNull::new(idx_raw).ok_or("Ahhhh").unwrap();
+            let my_safe_pointer = minimap2::MySafePointer { ptr: idx_safe };
             let al = Aligner {
                 aligner: minimap2::Aligner {
                     mapopt: mapopts,
                     idxopt: idxopts,
                     threads: n_threads,
-                    idx: Some(unsafe { *idx.assume_init() }),
+                    idx: Some(my_safe_pointer),
                     idx_reader: Some(unsafe { *idx_reader }),
                 },
                 n_threads: 0,
@@ -442,12 +463,15 @@ impl Aligner {
             return Err(PyRuntimeError::new_err("Index hasn't loaded"));
         }
         unsafe {
-            let ns = (self.aligner.idx.unwrap()).n_seq;
+            let ns = (*self.aligner.idx.as_ref().unwrap().as_ptr()).n_seq;
             let mut sn = Vec::with_capacity(ns as usize);
             for i in 0..ns {
                 sn.push(
                     std::ffi::CStr::from_ptr(
-                        (*((self.aligner.idx.unwrap()).seq.offset(i as isize))).name,
+                        (*((*(self.aligner.idx.as_ref().unwrap().as_ptr()))
+                            .seq
+                            .offset(i as isize)))
+                        .name,
                     )
                     .to_str()
                     .unwrap()
@@ -472,7 +496,13 @@ impl Aligner {
     /// Map a single read, blocking
     #[pyo3(signature = (seq, seq2=None, cs=false, MD=false), text_signature = "(seq, seq2=None, cs=False, MD=False)")]
     #[allow(non_snake_case)]
-    fn map(&self, seq: String, seq2: Option<String>, cs: bool, MD: bool) -> PyResult<Vec<Mapping>> {
+    fn map(
+        &mut self,
+        seq: String,
+        seq2: Option<String>,
+        cs: bool,
+        MD: bool,
+    ) -> PyResult<Vec<Mapping>> {
         // TODO: PyIterProtocol to map single reads and return as a generator
         if let Some(_seq2) = seq2 {
             return Err(PyNotImplementedError::new_err(
@@ -542,7 +572,7 @@ impl Aligner {
         self.n_threads = n_threads;
         let dones = Arc::new(Mutex::new(vec![false; n_threads]));
         for i in 0..n_threads {
-            let _aligner = self.aligner.clone();
+            let mut _aligner = self.aligner.clone();
             let stop = Arc::clone(&self.stop);
             let wq = Arc::clone(&self.work_queue);
             let rq = Arc::clone(&self.results_queue);
@@ -636,13 +666,19 @@ impl Aligner {
     }
 
     /// Align a sequence Optionally back off if we fail to add the sequence to the queue, in the case that the work queue is full.
-    #[pyo3(signature = (seqs, back_off=true))]
-    fn map_batch(&self, seqs: &PyAny, back_off: bool) -> PyResult<AlignmentBatchResultIter> {
+    /// This function will block until the sequence has been added to the queue. If max_attempts is None and back_off is true, there is no (effective) limit to the number of attempts.
+    #[pyo3(signature = (seqs, back_off=true, max_attempts=6))]
+    fn map_batch(
+        &self,
+        seqs: &PyAny,
+        back_off: bool,
+        max_attempts: Option<usize>,
+    ) -> PyResult<AlignmentBatchResultIter> {
         let mut res = AlignmentBatchResultIter::new();
         // Set the number of threads
         res.set_n_threads(self.n_threads);
         // do the heavy work
-        self._map_batch(&mut res, seqs, back_off)?;
+        self._map_batch(&mut res, seqs, back_off, max_attempts)?;
         // let return_metadata: (i32, i32, String) = (metadata.read_number, metadata.channel_number, String::from("hdea"));
         Ok(res)
     }
@@ -655,18 +691,98 @@ impl Aligner {
     /// Get the k value from the index.
     #[getter]
     fn k(&self) -> PyResult<i32> {
-        Ok(self.aligner.idx.unwrap().k)
+        Ok(unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.k)
     }
     /// Get the w value form the index.
     #[getter]
     fn w(&self) -> PyResult<i32> {
-        Ok(self.aligner.idx.unwrap().w)
+        Ok(unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.w)
     }
 
     /// Get the number of sequences present in the index
     #[getter]
     fn n_seq(&self) -> PyResult<u32> {
-        Ok(self.aligner.idx.unwrap().n_seq)
+        Ok(unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.n_seq)
+    }
+}
+
+/// Pushes an item onto a `crossbeam::queue::ArrayQueue` with optional backoff support.
+///
+/// The function tries to push an item `T` onto a given queue. If the push operation fails,
+/// it will automatically retry the operation up to `max_attempts` times if `back_off` is `true`.
+///
+/// # Parameters
+/// * `work_queue`: Reference to the `ArrayQueue<T>` to push the item onto.
+/// * `item`: The item to be pushed onto the queue.
+/// * `back_off`: A boolean flag that, when `true`, will engage a backoff mechanism on failure.
+/// * `id_num`: An identifier number for logging purposes.
+/// * `max_attempts`: The maximum number of attempts to push an item onto the queue. Defaults to 6, if None.
+///
+/// # Examples
+/// ```rust,ignore
+/// use crossbeam::queue::ArrayQueue;
+/// use pyo3::prelude::*;
+///
+/// fn main() -> PyResult<()> {
+///     let queue = ArrayQueue::new(100);
+///     let item = "my_item";
+///     let back_off = true;
+///     let id_num = 42;
+///
+///     push_with_backoff(&queue, item, back_off, id_num, usize::MAX)?;
+///     Ok(())
+/// }
+/// ```
+///
+/// # Returns
+/// * `Ok(())` if the push operation is successful or `Err(PyErr)` otherwise.
+///
+/// # Panics
+/// This function will not panic.
+///
+/// # Errors
+/// Returns a `PyErr` under the following conditions:
+/// * If the queue is full and `back_off` is `false`
+/// * If the queue remains full after `max_attempts` with `back_off` set to `true`
+///
+fn push_with_backoff<T: Clone + Debug>(
+    work_queue: &crossbeam::queue::ArrayQueue<T>,
+    item: T,
+    back_off: bool,
+    id_num: usize,
+    max_attempts: Option<usize>,
+) -> PyResult<()> {
+    match work_queue.push(item) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            if back_off {
+                let mut attempts = 0;
+                let max_attempts = max_attempts.unwrap_or(usize::MAX);
+                let sleep_duration = Duration::from_millis(50);
+
+                while attempts < max_attempts {
+                    if work_queue.push(e.clone()).is_ok() {
+                        return Ok(());
+                    }
+
+                    attempts += 1;
+                    thread::sleep(sleep_duration);
+                    // sleep_duration *= 2;
+                }
+
+                eprintln!("Internal error adding data to work queue, with backoff. {e:#?}, {id_num}, Attempts: {attempts}");
+            } else {
+                eprintln!(
+                    "Internal error adding data to work queue, without backoff. {e:#?} {id_num}"
+                );
+                return Err(PyErr::new::<PyRuntimeError, _>(format!(
+                    "Internal error adding data to work queue, without backoff. {e:#?} {id_num}. Is your fastq batch larger than 50000? Perhaps try `map_batch` with back_off=True?",
+                    e = e,
+                    id_num = id_num
+                )));
+            }
+            Ok(())
+        }
     }
 }
 
@@ -708,31 +824,52 @@ impl Aligner {
             return Err("No index");
         }
         if (self.aligner.mapopt.flag & minimap2_sys::MM_F_CIGAR as i64 != 0)
-            && (self.aligner.idx.unwrap().flag & minimap2_sys::MM_I_NO_SEQ as i32 != 0)
+            && (unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.flag
+                & minimap2_sys::MM_I_NO_SEQ as i32
+                != 0)
         {
             return Err("No sequence in this index");
         }
         let ref_seq_id: i32 = unsafe {
-            minimap2_sys::mm_idx_name2id(
-                self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
-                std::ffi::CString::new(name)
-                    .unwrap()
-                    .as_bytes_with_nul()
-                    .as_ptr() as *const i8,
-            )
+            //  conditionally compile using the correct pointer type (u8 or i8) for the platform and architecture
+            #[cfg(any(
+                all(target_arch = "aarch64", target_os = "linux"),
+                all(target_arch = "arm", target_os = "linux")
+            ))]
+            {
+                minimap2_sys::mm_idx_name2id(
+                    self.aligner.idx.as_ref().unwrap().as_ptr(),
+                    std::ffi::CString::new(name)
+                        .unwrap()
+                        .as_bytes_with_nul()
+                        .as_ptr() as *const u8,
+                )
+            }
+            #[cfg(any(
+                all(target_arch = "aarch64", target_os = "macos"),
+                all(target_arch = "x86_64", target_os = "linux"),
+                all(target_arch = "x86_64", target_os = "macos")
+            ))]
+            {
+                minimap2_sys::mm_idx_name2id(
+                    self.aligner.idx.as_ref().unwrap().as_ptr(),
+                    std::ffi::CString::new(name)
+                        .unwrap()
+                        .as_bytes_with_nul()
+                        .as_ptr() as *const i8,
+                )
+            }
         };
-        if (ref_seq_id < 0) | (ref_seq_id as u32 >= self.aligner.idx.unwrap().n_seq) {
+        if (ref_seq_id < 0)
+            | (ref_seq_id as u32 >= unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.n_seq)
+        {
             return Err("Could not find reference in index");
         }
 
         let ref_seq_offset = unsafe {
-            *(self
-                .aligner
-                .idx
-                .as_ref()
-                .unwrap()
+            *(*(self.aligner.idx.as_ref().unwrap().as_ptr()))
                 .seq
-                .offset(ref_seq_id as isize))
+                .offset(ref_seq_id as isize)
         };
         let ref_seq_len = ref_seq_offset.len as i32;
         if start >= ref_seq_len || start >= end {
@@ -745,7 +882,7 @@ impl Aligner {
         let mut seq_buf: Vec<u8> = vec![0; seq_len as usize];
         let _len = unsafe {
             minimap2_sys::mm_idx_getseq(
-                self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
+                self.aligner.idx.as_ref().unwrap().as_ptr(),
                 ref_seq_id as u32,
                 start as u32,
                 end as u32,
@@ -773,6 +910,7 @@ impl Aligner {
         res: &mut AlignmentBatchResultIter,
         seqs: &PyAny,
         back_off: bool,
+        max_attempts: Option<usize>,
     ) -> PyResult<()> {
         if self.n_threads == 0_usize {
             return Err(PyRuntimeError::new_err(
@@ -864,42 +1002,17 @@ impl Aligner {
                     ))
                 }
             };
-            match work_queue.push(WorkQueue::Work((id_num, seq))) {
-                Ok(()) => {}
-                Err(e) => {
-                    if back_off {
-                        let mut attempts = 0;
-                        let max_attempts = 6;
-                        let mut sleep_duration = Duration::from_millis(50); // Initial sleep duration (in milliseconds)
-
-                        while attempts < max_attempts {
-                            if work_queue.push(e.clone()).is_ok() {
-                                break; // Operation succeeded
-                            }
-
-                            attempts += 1;
-                            thread::sleep(sleep_duration);
-
-                            // Increase the sleep duration exponentially
-                            sleep_duration *= 2;
-                        }
-                        if attempts == 6 {
-                            eprintln!("Internal error adding data to work queue, with backoff. {e:#?}, {id_num}, Attempts: {attempts}");
-                        }
-                    } else {
-                        eprintln!("Internal error adding data to work queue, without backoff. {e:#?} {id_num}");
-                        return Err(PyErr::new::<PyRuntimeError, _>(format!(
-                            "Internal error adding data to work queue, without backoff. {e:#?} {id_num}. Is your fastq batch larger than 50000? Perhaps try `map_batch` with back_off=True?",
-                            e = e,
-                            id_num = id_num
-                        )));
-                    }
-                }
-            }
+            push_with_backoff(
+                &work_queue,
+                WorkQueue::Work((id_num, seq)),
+                back_off,
+                id_num,
+                max_attempts,
+            )?;
         }
         // Now we add n_thread dones, one for each thread. When the threads see this they know to close as there is no more data
         for _ in 0..self.n_threads {
-            work_queue.push(WorkQueue::Done).unwrap();
+            push_with_backoff(&work_queue, WorkQueue::Done, back_off, 0, max_attempts)?;
         }
 
         Ok(())
@@ -1037,6 +1150,32 @@ mod tests {
     }
 
     #[test]
+    #[allow(dropping_references)]
+    fn test_drop_and_recreate() {
+        let mut al = Aligner::py_new(
+            Some(PathBuf::from(
+                "/home/adoni5/Documents/Bioinformatics/refs/hg38_no_alts_22.mmi",
+            )),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            4_usize,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        std::mem::drop(&mut al);
+    }
+
+    #[test]
     fn load_index() {
         let al = get_test_aligner().unwrap();
         assert!(al.aligner.has_index());
@@ -1092,7 +1231,7 @@ mod tests {
 
     #[test]
     fn map_one() {
-        let al = get_test_aligner().unwrap();
+        let mut al = get_test_aligner().unwrap();
         let mappings = al.map(
             String::from("AGAGCAGGTAGGATCGTTGAAAAAAGAGTACTCAGGATTCCATTCAACTTTTACTGATTTGAAGCGTACTGTTTATGGCC\
                           AAGAATATTTACGTCTTTACAACCAATACGCAAAAAAAGGTTCATTGAGTTTGGTTGTGATTTGATGAAAATTACTGAGA\

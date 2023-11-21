@@ -15,49 +15,139 @@ on:
   pull_request:
   workflow_dispatch:
 
-permissions:
-  contents: read
 
 jobs:
   linux:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64]
+        target: [x86_64, "aarch64", "armv7"]
+        manylinux: [auto]
+        include:
+          # musllinux
+          - os: ubuntu
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - os: ubuntu
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - os: ubuntu
+            target: armv7-unknown-linux-musleabihf
+            manylinux: musllinux_1_2
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist -i 3.8 3.9 3.10 3.11 3.12 pypy3.8 pypy3.9 pypy3.10
           sccache: 'true'
-          manylinux: auto
+          manylinux: ${{ matrix.manylinux || 'auto' }}
+      - name: Install and test built x86_64 wheel
+        if: matrix.target == 'x86_64'
+        run: |
+          pip install mappy-rs  --no-index --find-links dist --force-reinstall
+          pip install pytest
+          pytest -sv
+      # Test musl wheels fro x86
+      - name: Install and test build x86_64 musl wheel
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        uses: addnab/docker-run-action@v3
+        with:
+          image: alpine:latest
+          options: -v ${{ github.workspace }}:/io -w /io
+          run: |
+            apk add py3-pip
+            pip3 install -U pip pytest
+            pip3 install mappy-rs --no-index --find-links /io/dist/ --force-reinstall
+            python3 -m pytest -sv
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
           name: wheels
           path: dist
 
+  test-builds-aarch:
+    name: run test of build on ${{ matrix.target }}-${{ matrix.distro }}
+    needs: [linux]
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [aarch64, armv7]
+        distro: ['ubuntu22.04', 'alpine_latest']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: get dist artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: wheels
+          path: dist
+
+      - uses: uraimo/run-on-arch-action@v2.5.1
+        name: install & test
+        with:
+          arch: ${{ matrix.target }}
+          distro: ${{ matrix.distro }}
+          githubToken: ${{ github.token }}
+          install: |
+            set -x
+            if command -v apt-get &> /dev/null; then
+              echo "installing python & pip with apt-get..."
+              apt-get update
+              apt-get install -y --no-install-recommends python3 python3-pip python3-venv
+              pip install -U pip pytest
+            else
+              echo "installing python & pip with apk..."
+              apk update
+              apk add py3-pip
+              pip3 install -U pip pytest
+
+            fi
+          run: |
+            python3 -m pip install mappy-rs --no-index --find-links dist --force-reinstall
+            python3 -m pytest -sv
+
   macos:
-    runs-on: macos-latest
+    runs-on: macos-13
     strategy:
       matrix:
         target: [x86_64, aarch64]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.10'
+          python-version: '3.11'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
           target: ${{ matrix.target }}
-          args: --release --out dist --find-interpreter
+          args: --release --out dist -i 3.8 3.9 3.10 3.11 3.12 pypy3.8 pypy3.9 pypy3.10
           sccache: 'true'
+      - name: Test built wheels
+        if: matrix.target == 'x86_64'
+        run: |
+          pip install mappy-rs --no-index --find-links dist --force-reinstall
+          pip install pytest
+          pytest -sv
       - name: Upload wheels
         uses: actions/upload-artifact@v3
         with:
@@ -67,7 +157,13 @@ jobs:
   sdist:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - name: Build sdist
         uses: PyO3/maturin-action@v1
         with:
@@ -83,7 +179,7 @@ jobs:
     name: Release
     runs-on: ubuntu-latest
     if: "startsWith(github.ref, 'refs/tags/')"
-    needs: [linux, macos, sdist]
+    needs: [linux, test-builds-aarch, macos, sdist]
     permissions:
       # Used to upload release artifacts
       contents: write

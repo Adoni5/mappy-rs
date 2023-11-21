@@ -17,7 +17,12 @@ jobs:
     name: "pre-commit"
     runs-on: "ubuntu-latest"
     steps:
-      - uses: "actions/checkout@v3"
+      - uses: "actions/checkout@v4"
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: "actions/setup-python@v4"
         with:
           python-version: ${{env.PYTHON_LATEST}}
@@ -33,7 +38,13 @@ jobs:
       matrix:
         toolchain: [stable, beta, nightly]
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: "dtolnay/rust-toolchain@master"
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -46,7 +57,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: clippy
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --no-default-features
 
@@ -59,7 +76,13 @@ jobs:
         python-version: ["3.8", "3.9", "3.10", "3.11"]
 
     steps:
-      - uses: "actions/checkout@v3"
+      - uses: "actions/checkout@v4"
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: "actions/setup-python@v4"
         with:
           python-version: "${{ matrix.python-version }}"
@@ -79,10 +102,16 @@ jobs:
     needs: ["cargo-test", "python-test"]
     strategy:
       matrix:
-        msrv: ["1.63.0", "1.64.0"]
+        msrv: ["1.65.0", "1.66.1"]
     name: "ubuntu / ${{ matrix.msrv }}"
     steps:
-      - uses: "actions/checkout@v3"
+      - uses: "actions/checkout@v4"
+        with:
+          submodules: 'recursive' # Fetch Git submodules recursively
+
+    # Initialize and update submodules (optional, if submodules were not initialized during checkout)
+      - name: Update submodules
+        run: git submodule update --init --recursive
       - uses: "dtolnay/rust-toolchain@master"
         with:
           toolchain: "${{ matrix.msrv }}"
