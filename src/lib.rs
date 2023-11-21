@@ -3,11 +3,13 @@
 //! Designed for use with readfish https://github.com/LooseLab/readfish/
 #![deny(missing_docs)]
 #![deny(clippy::missing_docs_in_private_items)]
-
+#![allow(forgetting_copy_types)]
 use crossbeam::channel::{bounded, Receiver, RecvError, Sender};
 use crossbeam::queue::ArrayQueue;
 use fnv::FnvHashMap;
 use itertools::all;
+use minimap2_sys::mm_idx_destroy;
+
 use pyo3::exceptions::{
     PyKeyError, PyNotImplementedError, PyRuntimeError, PyTypeError, PyValueError,
 };
@@ -17,6 +19,7 @@ use pyo3::types::{PyIterator, PyList, PySequence, PyTuple};
 use pyo3::FromPyObject;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
+use std::ptr::NonNull;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::{mem, thread};
@@ -302,7 +305,19 @@ pub struct Aligner {
     results_queue: Arc<ArrayQueue<WorkQueue<(Vec<Mapping>, usize)>>>,
 }
 // unsafe impl Send for Aligner {}
-
+impl Drop for Aligner {
+    fn drop(&mut self) {
+        if self.aligner.idx.is_some() {
+            println!("Doing the drop");
+            let c_ptr = self.aligner.idx.as_mut().unwrap().as_mut_ptr();
+            unsafe {
+                mm_idx_destroy(c_ptr);
+            }
+            println!("Done the drop");
+        }
+        println!("dropped")
+    }
+}
 #[pymethods]
 impl Aligner {
     /// Initialise a new Py Class Aligner
@@ -414,12 +429,16 @@ impl Aligner {
                 // Idx index name
                 minimap2_sys::mm_idx_index_name(idx.assume_init());
             };
+            let idx_raw = unsafe { idx.assume_init() };
+            // Safety check before wrapping the raw pointer
+            let idx_safe = NonNull::new(idx_raw).ok_or("Ahhhh").unwrap();
+            let my_safe_pointer = minimap2::MySafePointer { ptr: idx_safe };
             let al = Aligner {
                 aligner: minimap2::Aligner {
                     mapopt: mapopts,
                     idxopt: idxopts,
                     threads: n_threads,
-                    idx: Some(unsafe { *idx.assume_init() }),
+                    idx: Some(my_safe_pointer),
                     idx_reader: Some(unsafe { *idx_reader }),
                 },
                 n_threads: 0,
@@ -441,12 +460,15 @@ impl Aligner {
             return Err(PyRuntimeError::new_err("Index hasn't loaded"));
         }
         unsafe {
-            let ns = (self.aligner.idx.unwrap()).n_seq;
+            let ns = (*self.aligner.idx.as_ref().unwrap().as_ptr()).n_seq;
             let mut sn = Vec::with_capacity(ns as usize);
             for i in 0..ns {
                 sn.push(
                     std::ffi::CStr::from_ptr(
-                        (*((self.aligner.idx.unwrap()).seq.offset(i as isize))).name,
+                        (*((*(self.aligner.idx.as_ref().unwrap().as_ptr()))
+                            .seq
+                            .offset(i as isize)))
+                        .name,
                     )
                     .to_str()
                     .unwrap()
@@ -471,7 +493,13 @@ impl Aligner {
     /// Map a single read, blocking
     #[pyo3(signature = (seq, seq2=None, cs=false, MD=false), text_signature = "(seq, seq2=None, cs=False, MD=False)")]
     #[allow(non_snake_case)]
-    fn map(&self, seq: String, seq2: Option<String>, cs: bool, MD: bool) -> PyResult<Vec<Mapping>> {
+    fn map(
+        &mut self,
+        seq: String,
+        seq2: Option<String>,
+        cs: bool,
+        MD: bool,
+    ) -> PyResult<Vec<Mapping>> {
         // TODO: PyIterProtocol to map single reads and return as a generator
         if let Some(_seq2) = seq2 {
             return Err(PyNotImplementedError::new_err(
@@ -541,7 +569,7 @@ impl Aligner {
         self.n_threads = n_threads;
         let dones = Arc::new(Mutex::new(vec![false; n_threads]));
         for i in 0..n_threads {
-            let _aligner = self.aligner.clone();
+            let mut _aligner = self.aligner.clone();
             let stop = Arc::clone(&self.stop);
             let wq = Arc::clone(&self.work_queue);
             let rq = Arc::clone(&self.results_queue);
@@ -660,18 +688,18 @@ impl Aligner {
     /// Get the k value from the index.
     #[getter]
     fn k(&self) -> PyResult<i32> {
-        Ok(self.aligner.idx.unwrap().k)
+        Ok(unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.k)
     }
     /// Get the w value form the index.
     #[getter]
     fn w(&self) -> PyResult<i32> {
-        Ok(self.aligner.idx.unwrap().w)
+        Ok(unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.w)
     }
 
     /// Get the number of sequences present in the index
     #[getter]
     fn n_seq(&self) -> PyResult<u32> {
-        Ok(self.aligner.idx.unwrap().n_seq)
+        Ok(unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.n_seq)
     }
 }
 
@@ -793,7 +821,9 @@ impl Aligner {
             return Err("No index");
         }
         if (self.aligner.mapopt.flag & minimap2_sys::MM_F_CIGAR as i64 != 0)
-            && (self.aligner.idx.unwrap().flag & minimap2_sys::MM_I_NO_SEQ as i32 != 0)
+            && (unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.flag
+                & minimap2_sys::MM_I_NO_SEQ as i32
+                != 0)
         {
             return Err("No sequence in this index");
         }
@@ -819,7 +849,7 @@ impl Aligner {
             ))]
             {
                 minimap2_sys::mm_idx_name2id(
-                    self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
+                    self.aligner.idx.as_ref().unwrap().as_ptr(),
                     std::ffi::CString::new(name)
                         .unwrap()
                         .as_bytes_with_nul()
@@ -827,18 +857,16 @@ impl Aligner {
                 )
             }
         };
-        if (ref_seq_id < 0) | (ref_seq_id as u32 >= self.aligner.idx.unwrap().n_seq) {
+        if (ref_seq_id < 0)
+            | (ref_seq_id as u32 >= unsafe { *self.aligner.idx.as_ref().unwrap().as_ptr() }.n_seq)
+        {
             return Err("Could not find reference in index");
         }
 
         let ref_seq_offset = unsafe {
-            *(self
-                .aligner
-                .idx
-                .as_ref()
-                .unwrap()
+            *(*(self.aligner.idx.as_ref().unwrap().as_ptr()))
                 .seq
-                .offset(ref_seq_id as isize))
+                .offset(ref_seq_id as isize)
         };
         let ref_seq_len = ref_seq_offset.len as i32;
         if start >= ref_seq_len || start >= end {
@@ -851,7 +879,7 @@ impl Aligner {
         let mut seq_buf: Vec<u8> = vec![0; seq_len as usize];
         let _len = unsafe {
             minimap2_sys::mm_idx_getseq(
-                self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
+                self.aligner.idx.as_ref().unwrap().as_ptr(),
                 ref_seq_id as u32,
                 start as u32,
                 end as u32,
@@ -1119,6 +1147,32 @@ mod tests {
     }
 
     #[test]
+    #[allow(dropping_references)]
+    fn test_drop_and_recreate() {
+        let mut al = Aligner::py_new(
+            Some(PathBuf::from(
+                "/home/adoni5/Documents/Bioinformatics/refs/hg38_no_alts_22.mmi",
+            )),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            4_usize,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+        std::mem::drop(&mut al);
+    }
+
+    #[test]
     fn load_index() {
         let al = get_test_aligner().unwrap();
         assert!(al.aligner.has_index());
@@ -1174,7 +1228,7 @@ mod tests {
 
     #[test]
     fn map_one() {
-        let al = get_test_aligner().unwrap();
+        let mut al = get_test_aligner().unwrap();
         let mappings = al.map(
             String::from("AGAGCAGGTAGGATCGTTGAAAAAAGAGTACTCAGGATTCCATTCAACTTTTACTGATTTGAAGCGTACTGTTTATGGCC\
                           AAGAATATTTACGTCTTTACAACCAATACGCAAAAAAAGGTTCATTGAGTTTGGTTGTGATTTGATGAAAATTACTGAGA\
