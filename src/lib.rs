@@ -308,14 +308,11 @@ pub struct Aligner {
 impl Drop for Aligner {
     fn drop(&mut self) {
         if self.aligner.idx.is_some() {
-            println!("Doing the drop");
             let c_ptr = self.aligner.idx.as_mut().unwrap().as_mut_ptr();
             unsafe {
                 mm_idx_destroy(c_ptr);
             }
-            println!("Done the drop");
         }
-        println!("dropped")
     }
 }
 #[pymethods]
