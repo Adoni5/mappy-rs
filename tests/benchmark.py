@@ -2,12 +2,13 @@ import mappy_rs
 import mappy as mp
 import pytest
 from pathlib import Path
+import gc
 
 RESOURCES = (
     Path(__file__).parent.resolve().parent.resolve() / "resources/benchmarking"
 )
 FASTQ_PATH = RESOURCES / "fastq"
-INDEX_PATH = RESOURCES / "index/hg38_simple.mmi"
+INDEX_PATH = RESOURCES / "index/hg38_no_alts_22.mmi"
 _FILE_SUFFIXES = set([".fq", ".fastq", ".fastq.gz", ".fq.qz"])
 
 
@@ -22,12 +23,14 @@ def _gen_fastq(path: Path):
         for f in path.iterdir():
             if set(f.suffixes).intersection(_FILE_SUFFIXES):
                 yield from mp.fastx_read(str(f))
+
     else:
         if set(path.suffixes).intersection(_FILE_SUFFIXES):
             yield from mp.fastx_read(str(f))
 
 
 N_READS = sum(1 for _ in _gen_fastq(FASTQ_PATH))
+print(N_READS)
 
 
 @pytest.fixture(scope="module")
@@ -37,12 +40,18 @@ def fasta():
 
 @pytest.fixture
 def mappy_al_rs():
-    return mappy_rs.Aligner(str(INDEX_PATH))
+    al = mappy_rs.Aligner(str(INDEX_PATH))
+    yield al
+    del al
+    gc.collect()
 
 
 @pytest.fixture
 def mappy_al():
-    yield mp.Aligner(str(INDEX_PATH))
+    al = mp.Aligner(str(INDEX_PATH))
+    yield al
+    del al
+    gc.collect()
 
 
 @pytest.fixture
@@ -71,20 +80,38 @@ def _align(al, seqs):
     return n
 
 
-@pytest.mark.parametrize("aligner", ["mappy_al", "mappy_al_rs"], indirect=True)
-def test_classic_mappy(benchmark, aligner, fasta):
-    n = benchmark.pedantic(
-        _align, args=(aligner, fasta), iterations=1, rounds=1
-    )
-    assert N_READS == n
-    print("Finished classic mappy round")
+# @pytest.mark.parametrize(
+#     "aligner",
+#     ["mappy_al", "mappy_al_rs"],
+#     indirect=True,
+# )
+# def test_classic_mappy(benchmark, aligner, fasta):
+#     n = benchmark.pedantic(
+#         _align, args=(aligner, fasta), iterations=1, rounds=1
+#     )
+#     print(n)
+#     assert N_READS == n
+#     print("Finished classic mappy round")
 
 
-@pytest.mark.parametrize("threads", list(range(1, 6)))
-def test_benchmark_multi(threads, benchmark, mappy_al_rs, fasta):
-    mappy_al_rs.enable_threading(threads)
+@pytest.mark.parametrize(
+    "aligner, threads",
+    [
+        ("mappy_al", None),
+        ("mappy_al_rs", None),
+        ("mappy_al_rs", 1),
+        ("mappy_al_rs", 2),
+        ("mappy_al_rs", 3),
+    ],  # Add more thread counts as needed
+    indirect=["aligner"],
+)
+def test_aligner_with_threads(benchmark, aligner, threads, fasta):
+    if threads:  # Assuming this is the class name for mappy_rs.Aligner
+        aligner.enable_threading(threads)
     n = benchmark.pedantic(
-        align_multi, args=(mappy_al_rs, fasta), iterations=1, rounds=1
+        align_multi if threads else _align,
+        args=(aligner, fasta),
+        iterations=1,
+        rounds=1,
     )
     assert N_READS == n
-    print("Finished threaded mappy round")
