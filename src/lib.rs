@@ -307,11 +307,17 @@ pub struct Aligner {
 // unsafe impl Send for Aligner {}
 impl Drop for Aligner {
     fn drop(&mut self) {
+        {
+            let mut stop = self.stop.lock().unwrap();
+            *stop = true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
         if self.aligner.idx.is_some() {
             let c_ptr = self.aligner.idx.as_mut().unwrap().as_mut_ptr();
             unsafe {
                 mm_idx_destroy(c_ptr);
             }
+            self.aligner.idx = None;
         }
     }
 }
