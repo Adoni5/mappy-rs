@@ -1,4 +1,5 @@
-# Test the memory issue
+# Test the memory issue, not dropping Aligner on rust
+# side after del without manual gc.collect()
 from mappy_rs import Aligner
 import gc
 
