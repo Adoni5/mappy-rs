@@ -838,7 +838,7 @@ impl Aligner {
             ))]
             {
                 minimap2_sys::mm_idx_name2id(
-                    self.aligner.idx.as_ref().unwrap() as *const minimap2_sys::mm_idx_t,
+                    self.aligner.idx.as_ref().unwrap().as_ptr(),
                     std::ffi::CString::new(name)
                         .unwrap()
                         .as_bytes_with_nul()
