@@ -3,14 +3,16 @@ name: check
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/*]
+    tags:
+      - '*'
   pull_request:
   workflow_dispatch:
   schedule:
     - cron:  '0 0 * * SUN'
 
 env:
-  PYTHON_LATEST: "3.11"
+  PYTHON_LATEST: "3.12"
 
 jobs:
   pre-commit:
@@ -102,7 +104,7 @@ jobs:
     needs: ["cargo-test", "python-test"]
     strategy:
       matrix:
-        msrv: ["1.65.0", "1.66.1"]
+        msrv: ["1.76.0", "1.77.0"]
     name: "ubuntu / ${{ matrix.msrv }}"
     steps:
       - uses: "actions/checkout@v4"
