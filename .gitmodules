@@ -1,0 +1,4 @@
+[submodule "minimap2-rs"]
+	path = minimap2-rs
+	url = https://github.com/Adoni5/minimap2-rs.git
+	branch = main
