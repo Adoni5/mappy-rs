@@ -1021,6 +1021,7 @@ impl Aligner {
 
 /// Python iterable types that are accepted by the `Aligner.map_batch()` function
 #[derive(FromPyObject)]
+#[allow(dead_code)]
 enum SupportedTypes<'py> {
     /// PyList wrapper
     List(&'py PyList),
