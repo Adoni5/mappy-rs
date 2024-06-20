@@ -23,17 +23,17 @@ jobs:
       matrix:
         target: [x86_64, "aarch64", "armv7"]
         manylinux: [auto]
-        include:
-          # musllinux
-          - os: ubuntu
-            target: x86_64-unknown-linux-musl
-            manylinux: musllinux_1_2
-          - os: ubuntu
-            target: aarch64-unknown-linux-musl
-            manylinux: musllinux_1_2
-          - os: ubuntu
-            target: armv7-unknown-linux-musleabihf
-            manylinux: musllinux_1_2
+        # include:
+        #   # musllinux
+        #   - os: ubuntu
+        #     target: x86_64-unknown-linux-musl
+        #     manylinux: musllinux_1_2
+        #   - os: ubuntu
+        #     target: aarch64-unknown-linux-musl
+        #     manylinux: musllinux_1_2
+        #   - os: ubuntu
+        #     target: armv7-unknown-linux-musleabihf
+        #     manylinux: musllinux_1_2
     steps:
       - uses: actions/checkout@v4
         with:
