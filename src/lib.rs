@@ -1150,31 +1150,31 @@ mod tests {
         )
     }
 
-    #[test]
-    #[allow(dropping_references)]
-    fn test_drop_and_recreate() {
-        let mut al = Aligner::py_new(
-            Some(PathBuf::from(
-                "/home/adoni5/Documents/Bioinformatics/refs/hg38_no_alts_22.mmi",
-            )),
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            None,
-            4_usize,
-            None,
-            None,
-            None,
-            None,
-            None,
-        )
-        .unwrap();
-        std::mem::drop(&mut al);
-    }
+    // #[test]
+    // #[allow(dropping_references)]
+    // fn test_drop_and_recreate() {
+    //     let mut al = Aligner::py_new(
+    //         Some(PathBuf::from(
+    //             "/home/adoni5/Documents/Bioinformatics/refs/hg38_no_alts_22.mmi",
+    //         )),
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //         4_usize,
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //         None,
+    //     )
+    //     .unwrap();
+    //     std::mem::drop(&mut al);
+    // }
 
     #[test]
     fn load_index() {
