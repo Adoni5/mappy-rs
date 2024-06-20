@@ -44,7 +44,7 @@ jobs:
         run: git submodule update --init --recursive
       - uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
+          python-version: '3.12'
       - name: Build wheels
         uses: PyO3/maturin-action@v1
         with:
